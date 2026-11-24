@@ -43,7 +43,9 @@ Mesmo quando um docente consulta publicações institucionais, os seguintes camp
   - Chamada exclusivamente *server-to-server* pelo backend FastAPI (`backend/app/services/institutional_auth.py`), enviando `X-API-Key` e `Origin` configurados via variáveis de ambiente (`INSTITUTIONAL_AUTH_API_KEY`, `INSTITUTIONAL_AUTH_ORIGIN`). O token da app nunca é exposto ao browser.
   - Suporta três modos (`AUTH_MODE`): `hybrid` (tenta LDAP institucional e permite fallback para contas locais), `institutional` (exclusivamente LDAP) e `local`.
   - **Provisionamento JIT e ligação automática ao docente**: no primeiro login LDAP válido, o utilizador é criado/atualizado localmente por `email`, preserva promoções locais de perfil (ex.: docente promovido a `direction`), e é ligado automaticamente ao seu registo em `researchers` via `email`.
-  - **Mapeamento de perfis**: `admin -> admin`, `teacher -> faculty`, `student -> 403 Forbidden` por defeito (`INSTITUTIONAL_AUTH_ALLOW_STUDENTS=false`).
+  - **Mapeamento de perfis**: aceita apenas perfis expressamente autorizados (`admin -> admin`, `direction -> direction`, `teacher -> faculty`). Perfis desconhecidos, vazios ou `student` são recusados com `403 Forbidden`.
+  - **Modo estrito (`AUTH_MODE=institutional`)**: se `INSTITUTIONAL_AUTH_API_KEY` não estiver configurada, devolve `503 Service Unavailable` e nunca recorre ao login local.
+- **Armazenamento de sessão no frontend**: no MVP de desenvolvimento, o JWT é guardado em `sessionStorage` (limpo ao fechar a sessão do browser); antes de disponibilização em produção sobre HTTPS, deverá migrar para *cookies* `HttpOnly; Secure; SameSite=Lax`.
 - **Token da API do Portal Científico**: lido exclusivamente de variável de ambiente (`PORTAL_API_TOKEN`) no backend. Nunca é serializado em respostas HTTP, logs, estado do agente nem prompts de LLM.
 - **Upload de Excel**:
   - Validação de extensão (`.xlsx`) e tamanho máximo (`MAX_EXCEL_UPLOAD_MB`).

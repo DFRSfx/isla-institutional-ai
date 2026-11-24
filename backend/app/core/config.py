@@ -53,9 +53,11 @@ class Settings(BaseSettings):
                 secret == DEV_DEFAULT_JWT_SECRET
                 or "CHANGE_ME" in secret.upper()
                 or len(secret) < 32
+                or len(set(secret)) < 12
             ):
                 raise ValueError(
-                    "Em produção, JWT_SECRET_KEY deve ser um segredo aleatório forte (>= 32 caracteres)."
+                    "Em produção, JWT_SECRET_KEY deve ser um segredo aleatório de alta entropia "
+                    '(>= 32 caracteres). Gere com: python -c "import secrets; print(secrets.token_hex(32))"'
                 )
             if self.debug:
                 raise ValueError("DEBUG não pode estar ativo em produção.")

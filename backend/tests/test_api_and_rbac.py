@@ -1,3 +1,5 @@
+import secrets
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -131,14 +133,20 @@ def test_rbac_blocks_faculty_from_admin_ops_and_other_researchers(
 
 
 def test_production_config_rejects_weak_jwt_secret_and_debug() -> None:
+    strong_secret = secrets.token_hex(32)
+
     with pytest.raises(ValidationError):
         Settings(app_env="production")
 
     with pytest.raises(ValidationError):
         Settings(app_env="production", jwt_secret_key="too-short")
 
+    # Segredo longo mas de baixa entropia deve ser recusado
     with pytest.raises(ValidationError):
-        Settings(app_env="production", jwt_secret_key="x" * 40, debug=True)
+        Settings(app_env="production", jwt_secret_key="x" * 40, debug=False)
 
-    valid = Settings(app_env="production", jwt_secret_key="x" * 40, debug=False)
+    with pytest.raises(ValidationError):
+        Settings(app_env="production", jwt_secret_key=strong_secret, debug=True)
+
+    valid = Settings(app_env="production", jwt_secret_key=strong_secret, debug=False)
     assert valid.app_env == "production"

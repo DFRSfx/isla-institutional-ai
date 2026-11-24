@@ -20,15 +20,17 @@ export class ApiError extends Error {
   }
 }
 
+// Armazenamento em sessionStorage (limpo ao fechar o separador/sessão).
+// Antes de produção, migrar para cookie HttpOnly; Secure; SameSite=Lax emitido pelo backend.
 export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_STORAGE_KEY);
+  return sessionStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
 export function setStoredToken(token: string | null): void {
   if (token) {
-    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
   } else {
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   }
 }
 

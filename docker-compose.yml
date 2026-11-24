@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-isla_ai}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-isla_ai_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no ficheiro .env}
       POSTGRES_DB: ${POSTGRES_DB:-isla_ai}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -29,7 +29,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-isla_ai}:${POSTGRES_PASSWORD:-isla_ai_dev}@db:5432/${POSTGRES_DB:-isla_ai}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-isla_ai}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no ficheiro .env}@db:5432/${POSTGRES_DB:-isla_ai}
       REPORTS_OUTPUT_DIR: /app/reports_output
     volumes:
       - reports_data:/app/reports_output

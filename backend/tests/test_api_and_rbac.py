@@ -1,7 +1,10 @@
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
 from app.core.permissions import UserRole
 from app.models.audit import AuditLog
 from app.models.researcher import Researcher
@@ -125,3 +128,17 @@ def test_rbac_blocks_faculty_from_admin_ops_and_other_researchers(
     assert pub1_dir["internal_notes"] == "Nota interna confidencial"
     assert pub1_dir["evaluation_score"] == "9.5"
     assert pub1_dir["authors"][1]["raw_email"] == "bruno.costa@isla.test"
+
+
+def test_production_config_rejects_weak_jwt_secret_and_debug() -> None:
+    with pytest.raises(ValidationError):
+        Settings(app_env="production")
+
+    with pytest.raises(ValidationError):
+        Settings(app_env="production", jwt_secret_key="too-short")
+
+    with pytest.raises(ValidationError):
+        Settings(app_env="production", jwt_secret_key="x" * 40, debug=True)
+
+    valid = Settings(app_env="production", jwt_secret_key="x" * 40, debug=False)
+    assert valid.app_env == "production"

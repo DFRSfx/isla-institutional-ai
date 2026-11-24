@@ -1,7 +1,9 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEV_DEFAULT_JWT_SECRET = "dev-only-insecure-secret-change-in-production-32bytes"
 
 
 class Settings(BaseSettings):
@@ -17,9 +19,7 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./isla_ai_dev.db"
 
-    jwt_secret_key: str = Field(
-        default="dev-only-insecure-secret-change-in-production-32bytes"
-    )
+    jwt_secret_key: str = Field(default=DEV_DEFAULT_JWT_SECRET)
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60
 
@@ -45,6 +45,22 @@ class Settings(BaseSettings):
     llm_provider: str = "unconfigured"
     llm_model: str = ""
     llm_api_key: str = ""
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        if self.app_env.strip().lower() in {"production", "prod"}:
+            secret = self.jwt_secret_key.strip()
+            if (
+                secret == DEV_DEFAULT_JWT_SECRET
+                or "CHANGE_ME" in secret.upper()
+                or len(secret) < 32
+            ):
+                raise ValueError(
+                    "Em produção, JWT_SECRET_KEY deve ser um segredo aleatório forte (>= 32 caracteres)."
+                )
+            if self.debug:
+                raise ValueError("DEBUG não pode estar ativo em produção.")
+        return self
 
 
 @lru_cache

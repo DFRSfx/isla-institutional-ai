@@ -52,22 +52,31 @@ def create_access_token(
     expires_delta: timedelta | None = None,
 ) -> str:
     settings = get_settings()
-    expire = datetime.now(UTC) + (
+    now = datetime.now(UTC)
+    expire = now + (
         expires_delta or timedelta(minutes=settings.jwt_access_token_expire_minutes)
     )
     payload: dict[str, Any] = {
         "sub": str(subject),
         "role": role,
+        "iss": "isla-institutional-ai",
+        "type": "access",
+        "jti": secrets.token_hex(16),
         "exp": expire,
-        "iat": datetime.now(UTC),
+        "iat": now,
     }
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
     settings = get_settings()
-    return jwt.decode(
+    payload = jwt.decode(
         token,
         settings.jwt_secret_key,
         algorithms=[settings.jwt_algorithm],
+        issuer="isla-institutional-ai",
+        options={"require": ["sub", "exp", "iat"]},
     )
+    if payload.get("type") != "access":
+        raise jwt.InvalidTokenError("Tipo de token inválido.")
+    return payload

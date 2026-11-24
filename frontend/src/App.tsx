@@ -5,7 +5,7 @@ import { type ActiveSection, Sidebar } from "@/components/Sidebar";
 import { AdminPage } from "@/pages/AdminPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { LoginPage } from "@/pages/LoginPage";
-import { ApiError, api, getStoredToken, setStoredToken } from "@/services/api";
+import { ApiError, api } from "@/services/api";
 import type { ConversationItem, MessageItem, UserProfile } from "@/types/api";
 
 export function App() {
@@ -29,11 +29,6 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const token = getStoredToken();
-    if (!token) {
-      setBootstrapping(false);
-      return;
-    }
     api
       .me()
       .then((profile) => {
@@ -41,7 +36,7 @@ export function App() {
         return loadConversations();
       })
       .catch(() => {
-        setStoredToken(null);
+        setUser(null);
       })
       .finally(() => setBootstrapping(false));
   }, [loadConversations]);
@@ -99,8 +94,12 @@ export function App() {
     }
   };
 
-  const handleLogout = () => {
-    setStoredToken(null);
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      // limpa estado local mesmo se a sessão já tiver expirado
+    }
     setUser(null);
     setConversations([]);
     setMessages([]);
@@ -136,7 +135,7 @@ export function App() {
         activeConversationId={activeConversationId}
         onSelectConversation={(id) => void handleSelectConversation(id)}
         onNewConversation={handleNewConversation}
-        onLogout={handleLogout}
+        onLogout={() => void handleLogout()}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
       />

@@ -167,6 +167,9 @@ def test_agent_est_report_followup_comparison_and_pdf_excel_downloads(
             headers=auth_headers(direction),
         ).json()
         assert len(msgs) == 4  # 2 user + 2 assistant
+        # Botões PDF/Excel reconstruídos no histórico ao recarregar a conversa
+        assert msgs[1]["report_bundle"]["report_id"] == first_report_id
+        assert msgs[3]["report_bundle"]["report_id"] == body2["report_bundle"]["report_id"]
 
 
 def test_agent_enforces_rbac_when_faculty_queries_other_researcher_and_audit_logs(

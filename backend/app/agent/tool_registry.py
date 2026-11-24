@@ -238,6 +238,7 @@ def execute_registered_tool(
                 "scope": data["scope"],
                 "reproducibility_id": data["reproducibility_id"],
                 "report_generated": report_bundle is not None,
+                "report_bundle": report_bundle,
             },
             analytics_summary=analytics_summary,
             report_bundle=report_bundle,

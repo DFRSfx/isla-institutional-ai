@@ -90,4 +90,15 @@ def list_conversation_messages(
         .where(Message.conversation_id == conv.id)
         .order_by(Message.created_at)
     ).all()
-    return [MessageResponse.model_validate(m) for m in msgs]
+
+    out: list[MessageResponse] = []
+    for m in msgs:
+        restored_bundle: ReportBundleResponse | None = None
+        for tc in reversed(m.tool_calls_json or []):
+            if isinstance(tc, dict) and isinstance(tc.get("report_bundle"), dict):
+                restored_bundle = ReportBundleResponse(**tc["report_bundle"])
+                break
+        item = MessageResponse.model_validate(m)
+        item.report_bundle = restored_bundle
+        out.append(item)
+    return out

@@ -11,8 +11,6 @@ import type {
   UserProfile,
 } from "@/types/api";
 
-const TOKEN_STORAGE_KEY = "isla_ai_access_token";
-
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -21,31 +19,14 @@ export class ApiError extends Error {
   }
 }
 
-// Armazenamento em sessionStorage (limpo ao fechar o separador/sessão).
-// Antes de produção, migrar para cookie HttpOnly; Secure; SameSite=Lax emitido pelo backend.
-export function getStoredToken(): string | null {
-  return sessionStorage.getItem(TOKEN_STORAGE_KEY);
-}
-
-export function setStoredToken(token: string | null): void {
-  if (token) {
-    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-  } else {
-    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-  }
-}
-
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = getStoredToken();
   const headers = new Headers(init.headers);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
   if (!(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
-  const res = await fetch(path, { ...init, headers });
+  // Autenticação via cookie HttpOnly emitido pelo backend (sem exposição de JWT ao JavaScript)
+  const res = await fetch(path, { ...init, headers, credentials: "include" });
   if (!res.ok) {
     let detail = `Erro HTTP ${res.status}`;
     try {
@@ -64,6 +45,12 @@ export const api = {
     return request<TokenResponse>("/api/v1/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
+    });
+  },
+
+  logout(): Promise<{ status: string }> {
+    return request<{ status: string }>("/api/v1/auth/logout", {
+      method: "POST",
     });
   },
 
@@ -90,10 +77,7 @@ export const api = {
   },
 
   async downloadReport(url: string, fallbackFilename: string): Promise<void> {
-    const token = getStoredToken();
-    const res = await fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    const res = await fetch(url, { credentials: "include" });
     if (!res.ok) {
       throw new ApiError(res.status, "Não foi possível descarregar o relatório.");
     }

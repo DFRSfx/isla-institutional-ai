@@ -12,21 +12,24 @@ from app.database.session import get_db
 from app.models.user import User
 from app.services.audit import record_audit_log
 
+SESSION_COOKIE_NAME = "isla_ai_session"
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    if credentials is None:
+    raw_token = credentials.credentials if credentials is not None else request.cookies.get(SESSION_COOKIE_NAME)
+    if not raw_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Autenticação obrigatória.",
         )
 
     try:
-        payload = decode_access_token(credentials.credentials)
+        payload = decode_access_token(raw_token)
         user_id = UUID(payload["sub"])
     except (jwt.PyJWTError, KeyError, ValueError):
         raise HTTPException(

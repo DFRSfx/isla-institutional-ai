@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowRight, Lock, ShieldCheck, User } from "lucide-react";
 
-import { ApiError, api, setStoredToken } from "@/services/api";
+import { ApiError, api } from "@/services/api";
 import type { UserProfile } from "@/types/api";
 
 interface LoginPageProps {
@@ -20,7 +20,6 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
     setLoading(true);
     try {
       const res = await api.login(username.trim(), password);
-      setStoredToken(res.access_token);
       onAuthenticated(res.user);
     } catch (err) {
       if (err instanceof ApiError) {

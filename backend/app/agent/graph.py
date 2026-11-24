@@ -583,7 +583,11 @@ class AgentOrchestrator:
                             output_dir=self.reports_dir,
                         )
                         tool_calls.append(
-                            {"tool": "report_generator", "report_id": report_bundle["report_id"]}
+                            {
+                                "tool": "report_generator",
+                                "report_id": report_bundle["report_id"],
+                                "report_bundle": report_bundle,
+                            }
                         )
                     answer = self._compose_grounded_answer(
                         heading=f"Produção Científica — {target_label}",
@@ -633,7 +637,11 @@ class AgentOrchestrator:
                     output_dir=self.reports_dir,
                 )
                 tool_calls.append(
-                    {"tool": "report_generator", "report_id": report_bundle["report_id"]}
+                    {
+                        "tool": "report_generator",
+                        "report_id": report_bundle["report_id"],
+                        "report_bundle": report_bundle,
+                    }
                 )
             answer = self._compose_grounded_answer(
                 heading=scope_title,

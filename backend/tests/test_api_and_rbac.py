@@ -1,4 +1,7 @@
+import json
 import secrets
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,8 +12,10 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.permissions import UserRole
 from app.models.audit import AuditLog
+from app.models.conversation import Conversation
 from app.models.researcher import Researcher
 from app.services.excel_import import ExcelImportService
+from app.services.maintenance import cleanup_expired_data
 from app.services.portal_api import PortalFetchResult, PortalSyncService
 from tests.conftest import auth_headers, build_synthetic_researchers_xlsx, make_user
 from tests.test_portal_sync import SAMPLE_PORTAL_PAYLOAD_V1
@@ -150,3 +155,67 @@ def test_production_config_rejects_weak_jwt_secret_and_debug() -> None:
 
     valid = Settings(app_env="production", jwt_secret_key=strong_secret, debug=False)
     assert valid.app_env == "production"
+
+
+def test_httponly_cookie_session_and_logout(client: TestClient, db_session: Session) -> None:
+    make_user(
+        db_session,
+        email="cookie.user@islagaia.pt",
+        role=UserRole.DIRECTION,
+        password="CookiePassword123!",
+    )
+
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={"username": "cookie.user@islagaia.pt", "password": "CookiePassword123!"},
+    )
+    assert login_resp.status_code == 200
+    assert "isla_ai_session=" in login_resp.headers.get("set-cookie", "")
+    assert "httponly" in login_resp.headers.get("set-cookie", "").lower()
+
+    # Autenticação via cookie sem cabeçalho Authorization
+    me_resp = client.get("/api/v1/auth/me")
+    assert me_resp.status_code == 200
+    assert me_resp.json()["email"] == "cookie.user@islagaia.pt"
+
+    logout_resp = client.post("/api/v1/auth/logout")
+    assert logout_resp.status_code == 200
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_retention_cleanup_deletes_expired_conversations_and_reports(
+    db_session: Session, tmp_path: Path
+) -> None:
+    user = make_user(db_session, email="ret@islagaia.pt", role=UserRole.ADMIN)
+    now = datetime.now(UTC)
+
+    old_conv = Conversation(
+        user_id=user.id,
+        title="Antiga",
+        created_at=now - timedelta(days=400),
+        updated_at=now - timedelta(days=400),
+    )
+    fresh_conv = Conversation(user_id=user.id, title="Recente", created_at=now, updated_at=now)
+    db_session.add_all([old_conv, fresh_conv])
+    db_session.commit()
+
+    # Criar 1 relatório expirado e 1 recente
+    (tmp_path / "old-rep.pdf").write_bytes(b"%PDF-old")
+    (tmp_path / "old-rep.xlsx").write_bytes(b"xlsx-old")
+    (tmp_path / "old-rep.meta.json").write_text(
+        json.dumps({"created_at": (now - timedelta(days=400)).isoformat()}),
+        encoding="utf-8",
+    )
+    (tmp_path / "new-rep.pdf").write_bytes(b"%PDF-new")
+    (tmp_path / "new-rep.meta.json").write_text(
+        json.dumps({"created_at": now.isoformat()}),
+        encoding="utf-8",
+    )
+
+    stats = cleanup_expired_data(db_session, retention_days=365, reports_dir=tmp_path, now=now)
+    assert stats == {"deleted_conversations": 1, "deleted_reports": 1}
+    assert not (tmp_path / "old-rep.pdf").exists()
+    assert not (tmp_path / "old-rep.xlsx").exists()
+    assert (tmp_path / "new-rep.pdf").exists()
+    remaining_convs = db_session.scalars(select(Conversation)).all()
+    assert [c.title for c in remaining_convs] == ["Recente"]

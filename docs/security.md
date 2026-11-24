@@ -45,7 +45,8 @@ Mesmo quando um docente consulta publicações institucionais, os seguintes camp
   - **Provisionamento JIT e ligação automática ao docente**: no primeiro login LDAP válido, o utilizador é criado/atualizado localmente por `email`, preserva promoções locais de perfil (ex.: docente promovido a `direction`), e é ligado automaticamente ao seu registo em `researchers` via `email`.
   - **Mapeamento de perfis**: aceita apenas perfis expressamente autorizados (`admin -> admin`, `direction -> direction`, `teacher -> faculty`). Perfis desconhecidos, vazios ou `student` são recusados com `403 Forbidden`.
   - **Modo estrito (`AUTH_MODE=institutional`)**: se `INSTITUTIONAL_AUTH_API_KEY` não estiver configurada, devolve `503 Service Unavailable` e nunca recorre ao login local.
-- **Armazenamento de sessão no frontend**: no MVP de desenvolvimento, o JWT é guardado em `sessionStorage` (limpo ao fechar a sessão do browser); antes de disponibilização em produção sobre HTTPS, deverá migrar para *cookies* `HttpOnly; Secure; SameSite=Lax`.
+- **Armazenamento de sessão no frontend**: o backend emite *cookie* `HttpOnly; SameSite=Lax` (`Secure=true` em produção) em `POST /api/v1/auth/login` e revoga-o em `POST /api/v1/auth/logout`, eliminando armazenamento de JWT em `localStorage`/`sessionStorage` no browser. Clientes técnicos/API mantêm suporte a `Authorization: Bearer`.
+- **Política de retenção**: o comando `python -m app.cli cleanup-retention` remove conversações, mensagens e relatórios PDF/Excel anteriores a `CONVERSATION_RETENTION_DAYS` com registo em `audit_logs`.
 - **Token da API do Portal Científico**: lido exclusivamente de variável de ambiente (`PORTAL_API_TOKEN`) no backend. Nunca é serializado em respostas HTTP, logs, estado do agente nem prompts de LLM.
 - **Upload de Excel**:
   - Validação de extensão (`.xlsx`) e tamanho máximo (`MAX_EXCEL_UPLOAD_MB`).

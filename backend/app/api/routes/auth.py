@@ -1,10 +1,10 @@
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, permissions_for_role
+from app.api.deps import SESSION_COOKIE_NAME, get_current_user, permissions_for_role
 from app.core.config import get_settings
 from app.core.permissions import UserRole
 from app.core.security import create_access_token, hash_password, verify_password
@@ -80,6 +80,7 @@ def auth_config(
 def login(
     payload: LoginRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     auth_client: InstitutionalAuthClient = Depends(get_institutional_auth_client),
 ) -> TokenResponse:
@@ -216,7 +217,38 @@ def login(
         researcher_id=user.researcher_id,
         permissions=permissions_for_role(user.role),
     )
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.app_env.strip().lower() in {"production", "prod"},
+        max_age=settings.jwt_access_token_expire_minutes * 60,
+        path="/",
+    )
     return TokenResponse(access_token=token, user=profile)
+
+
+@router.post("/logout")
+def logout(
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    record_audit_log(
+        db,
+        action="auth.logout",
+        resource_type="user",
+        resource_id=str(user.id),
+        user_id=user.id,
+        user_role=user.role,
+        status="success",
+        ip_address=request.client.host if request.client else None,
+    )
+    db.commit()
+    return {"status": "logged_out"}
 
 
 @router.get("/me", response_model=UserProfileResponse)

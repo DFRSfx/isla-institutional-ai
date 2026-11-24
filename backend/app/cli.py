@@ -1,4 +1,4 @@
-"""Utilitário CLI para inicializar utilizadores e executar operações administrativas."""
+"""Utilitário CLI para inicializar utilizadores e executar rotinas administrativas/periódicas."""
 
 import argparse
 
@@ -9,6 +9,8 @@ from app.core.permissions import UserRole
 from app.core.security import hash_password
 from app.database.session import Base, SessionLocal, engine
 from app.models.user import User
+from app.services.maintenance import cleanup_expired_data
+from app.services.portal_api import PortalSyncService
 
 
 def create_user_cmd(email: str, password: str, full_name: str, role: str) -> None:
@@ -32,6 +34,25 @@ def create_user_cmd(email: str, password: str, full_name: str, role: str) -> Non
         print(f"Utilizador criado com sucesso: id={user.id}, email={user.email}, role={user.role}")
 
 
+def sync_portal_cmd(nocache: bool) -> None:
+    with SessionLocal() as db:
+        snapshot = PortalSyncService().sync_publications(db, nocache=nocache)
+        print(
+            f"Portal sincronizado (versão={snapshot.source_version}): "
+            f"{snapshot.record_count} registos "
+            f"(+{snapshot.records_created} / ~{snapshot.records_updated} / -{snapshot.records_removed})"
+        )
+
+
+def cleanup_retention_cmd(days: int | None) -> None:
+    with SessionLocal() as db:
+        res = cleanup_expired_data(db, retention_days=days)
+        print(
+            f"Limpeza concluída: {res['deleted_conversations']} conversação(ões) e "
+            f"{res['deleted_reports']} relatório(s) removidos."
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="CLI ISLA Institutional AI Agent")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -42,9 +63,19 @@ def main() -> None:
     cu.add_argument("--name", required=True)
     cu.add_argument("--role", choices=[r.value for r in UserRole], default=UserRole.ADMIN.value)
 
+    sp = sub.add_parser("sync-portal", help="Sincronizar API do Portal Científico (cron diário)")
+    sp.add_argument("--nocache", action="store_true", help="Forçar nocache=1 (apenas admin)")
+
+    cr = sub.add_parser("cleanup-retention", help="Aplicar política de retenção RGPD")
+    cr.add_argument("--days", type=int, default=None, help="Sobrescrever CONVERSATION_RETENTION_DAYS")
+
     args = parser.parse_args()
     if args.command == "create-user":
         create_user_cmd(args.email, args.password, args.name, args.role)
+    elif args.command == "sync-portal":
+        sync_portal_cmd(args.nocache)
+    elif args.command == "cleanup-retention":
+        cleanup_retention_cmd(args.days)
 
 
 if __name__ == "__main__":

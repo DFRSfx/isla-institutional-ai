@@ -194,6 +194,7 @@ class MessageResponse(BaseModel):
     content: str
     sources_json: list[dict[str, Any]]
     tool_calls_json: list[dict[str, Any]]
+    report_bundle: ReportBundleResponse | None = None
     created_at: datetime
 
 

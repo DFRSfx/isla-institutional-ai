@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local databases & uploads
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+reports_output/
+
+# Secrets & environment
+.env
+.env.local
+.env.*.local
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Real institutional data files (never commit real personal Excel exports)
+*.xlsx
+*.xls
+!research/test-dataset/synthetic_*.xlsx
+
+# OS & Editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

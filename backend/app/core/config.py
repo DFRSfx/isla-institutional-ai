@@ -29,7 +29,6 @@ class Settings(BaseSettings):
     institutional_auth_api_key: str = ""
     institutional_auth_origin: str = "http://localhost:5173"
     institutional_auth_timeout_seconds: float = 15.0
-    institutional_auth_allow_students: bool = False
 
     # Portal Científico API — mantido estritamente no backend
     portal_api_base_url: str = "http://localhost:8000"

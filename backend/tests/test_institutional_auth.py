@@ -52,7 +52,6 @@ def _make_mock_auth_client(
         institutional_auth_base_url="https://auth.dariosoares.dev",
         institutional_auth_api_key=api_key,
         institutional_auth_origin=origin,
-        institutional_auth_allow_students=False,
     )
     return InstitutionalAuthClient(settings=settings, http_client=http_client), captured
 
@@ -173,3 +172,68 @@ def test_hybrid_mode_falls_back_to_local_admin_when_ldap_rejects(db_session: Ses
         )
         assert resp.status_code == 200
         assert resp.json()["user"]["role"] == "admin"
+
+
+def test_institutional_mode_never_falls_back_to_local_when_unconfigured(
+    db_session: Session, monkeypatch
+) -> None:
+    make_user(
+        db_session,
+        email="local.admin@islagaia.pt",
+        role=UserRole.ADMIN,
+        password="LocalPassword123!",
+    )
+    # Simula AUTH_MODE=institutional com API key vazia ou placeholder
+    for bad_key in ("", "iag_live_CHANGE_ME_APP_TOKEN"):
+        unconfigured_settings = Settings(
+            auth_mode="institutional",
+            institutional_auth_api_key=bad_key,
+        )
+        monkeypatch.setattr("app.api.routes.auth.get_settings", lambda s=unconfigured_settings: s)
+        auth_client = InstitutionalAuthClient(settings=unconfigured_settings)
+        assert auth_client.is_configured is False
+
+        with _build_client(db_session, auth_client) as client:
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"username": "local.admin@islagaia.pt", "password": "LocalPassword123!"},
+            )
+            assert resp.status_code == 503
+
+
+def test_institutional_ldap_rejects_unknown_or_missing_roles(db_session: Session) -> None:
+    auth_client, _ = _make_mock_auth_client(
+        {
+            "guest_user": (
+                200,
+                {
+                    "success": True,
+                    "user": {
+                        "username": "guest_user",
+                        "displayName": "Externo",
+                        "email": "guest@islagaia.pt",
+                    },
+                    "role": "guest",
+                },
+            ),
+            "no_role_user": (
+                200,
+                {
+                    "success": True,
+                    "user": {
+                        "username": "no_role_user",
+                        "displayName": "Sem Perfil",
+                        "email": "norole@islagaia.pt",
+                    },
+                },
+            ),
+        }
+    )
+
+    with _build_client(db_session, auth_client) as client:
+        for uname in ("guest_user", "no_role_user"):
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"username": uname, "password": "secret"},
+            )
+            assert resp.status_code == 403

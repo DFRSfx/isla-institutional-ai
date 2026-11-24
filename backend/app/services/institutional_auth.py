@@ -27,11 +27,12 @@ class InstitutionalIdentity:
     mapped_role: UserRole
 
 
-def map_external_role(
-    external_role: str | None,
-    *,
-    allow_students: bool = False,
-) -> UserRole:
+def map_external_role(external_role: str | None) -> UserRole:
+    """
+    Aceita exclusivamente perfis expressamente autorizados.
+    Perfis desconhecidos, vazios ou 'student' são recusados até existir
+    um perfil dedicado com permissões próprias.
+    """
     normalized = (external_role or "").strip().lower()
     if normalized == "admin":
         return UserRole.ADMIN
@@ -40,13 +41,12 @@ def map_external_role(
     if normalized in {"teacher", "faculty", "docente"}:
         return UserRole.FACULTY
     if normalized == "student":
-        if allow_students:
-            return UserRole.FACULTY
         raise InstitutionalAuthForbiddenRole(
             "Acesso reservado a docentes, direção e administradores do ISLA."
         )
-    # Fallback conservador caso /v1/auth seja usado sem claim de role
-    return UserRole.FACULTY
+    raise InstitutionalAuthForbiddenRole(
+        "Perfil institucional desconhecido ou ausente. Acesso recusado."
+    )
 
 
 class InstitutionalAuthClient:
@@ -65,7 +65,8 @@ class InstitutionalAuthClient:
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.settings.institutional_auth_api_key.strip())
+        key = self.settings.institutional_auth_api_key.strip()
+        return bool(key) and "CHANGE_ME" not in key.upper()
 
     def authenticate(self, username: str, password: str) -> InstitutionalIdentity:
         if not self.is_configured:
@@ -132,7 +133,6 @@ class InstitutionalAuthClient:
         external_role = payload.get("role")
         mapped_role = map_external_role(
             str(external_role) if external_role is not None else None,
-            allow_students=self.settings.institutional_auth_allow_students,
         )
 
         return InstitutionalIdentity(

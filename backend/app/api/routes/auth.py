@@ -89,7 +89,25 @@ def login(
 
     user: User | None = None
     auth_provider = "local"
-    use_institutional = settings.auth_mode in {"institutional", "hybrid"} and auth_client.is_configured
+    auth_mode = settings.auth_mode.strip().lower()
+
+    if auth_mode == "institutional" and not auth_client.is_configured:
+        record_audit_log(
+            db,
+            action="auth.login.misconfigured",
+            resource_type="auth",
+            resource_id=identifier,
+            status="error",
+            details={"provider": "institutional_ldap", "reason": "api_key_not_configured"},
+            ip_address=ip,
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Autenticação institucional não está configurada no servidor.",
+        )
+
+    use_institutional = auth_mode in {"institutional", "hybrid"} and auth_client.is_configured
 
     if use_institutional:
         try:
@@ -126,7 +144,7 @@ def login(
             db.commit()
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
         except InstitutionalAuthUnauthorized:
-            if settings.auth_mode == "institutional":
+            if auth_mode == "institutional":
                 record_audit_log(
                     db,
                     action="auth.login",
@@ -142,14 +160,14 @@ def login(
                     detail="Credenciais institucionais inválidas.",
                 )
         except InstitutionalAuthError as exc:
-            if settings.auth_mode == "institutional":
+            if auth_mode == "institutional":
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=str(exc),
                 ) from exc
 
-    # Fallback local (modo 'local' ou 'hybrid' para contas locais)
-    if user is None:
+    # Fallback local (apenas permitido fora do modo 'institutional')
+    if user is None and auth_mode != "institutional":
         email_lower = identifier.lower()
         local_user = db.scalar(select(User).where(User.email == email_lower))
         if (

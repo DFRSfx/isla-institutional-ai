@@ -1,0 +1,251 @@
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+from uuid import UUID
+
+from app.agent.tools import (
+    ToolContext,
+    find_researcher,
+    get_data_sources_status,
+    get_scientific_production_report_data,
+)
+from app.services.report_generator import ReportGeneratorService
+
+OPENAI_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_data_sources_status",
+            "description": (
+                "Consulta a versão, número de registos e data da última atualização das fontes "
+                "de dados sincronizadas (API do Portal Científico e Excel de docentes)."
+            ),
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_researcher",
+            "description": (
+                "Pesquisa um docente por Ciência Vitae ID (ex. AAAA-1111-BBBB), email institucional "
+                "ou nome. Respeita RBAC no backend. Correspondências apenas por nome devolvem "
+                "hipóteses que exigem validação antes de gerar relatórios."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Ciência Vitae ID, email institucional ou nome a pesquisar.",
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_scientific_production_report_data",
+            "description": (
+                "Executa cálculos determinísticos cruzados entre Portal Científico e Excel de docentes "
+                "(KPIs, evolução anual, quartis, Scopus/WoS, estado das publicações, docentes/estudantes "
+                "mais produtivos, comparação entre dois anos e alertas de qualidade). "
+                "Opcionalmente gera os ficheiros PDF e Excel prontos para download."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "school_code": {
+                        "type": ["string", "null"],
+                        "description": "Código da escola (ex.: 'EST' ou 'ESG'), ou null para âmbito institucional.",
+                    },
+                    "year_from": {
+                        "type": ["integer", "null"],
+                        "description": "Ano inicial do intervalo (inclusivo).",
+                    },
+                    "year_to": {
+                        "type": ["integer", "null"],
+                        "description": "Ano final do intervalo (inclusivo).",
+                    },
+                    "researcher_id": {
+                        "type": ["string", "null"],
+                        "description": "UUID do docente (apenas após correspondência exata ou próprio utilizador).",
+                    },
+                    "compare_year_a": {
+                        "type": ["integer", "null"],
+                        "description": "Primeiro ano para comparação direta (ex.: 2024).",
+                    },
+                    "compare_year_b": {
+                        "type": ["integer", "null"],
+                        "description": "Segundo ano para comparação direta (ex.: 2025).",
+                    },
+                    "generate_reports": {
+                        "type": "boolean",
+                        "description": "Se true, gera imediatamente os relatórios PDF e Excel.",
+                    },
+                    "report_title": {
+                        "type": ["string", "null"],
+                        "description": "Título opcional para o relatório PDF/Excel.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
+
+@dataclass
+class ToolExecutionOutput:
+    tool_name: str
+    llm_payload: dict[str, Any]
+    sources: list[dict[str, Any]]
+    audit_meta: dict[str, Any]
+    analytics_summary: dict[str, Any] | None = None
+    report_bundle: dict[str, Any] | None = None
+
+
+def execute_registered_tool(
+    *,
+    name: str,
+    arguments: dict[str, Any],
+    ctx: ToolContext,
+    report_generator: ReportGeneratorService,
+    reports_dir: Path | None = None,
+    reference_year: int | None = None,
+) -> ToolExecutionOutput:
+    """
+    Executa uma ferramenta registada respeitando RBAC e minimização de dados enviados ao LLM.
+    """
+    if name == "get_data_sources_status":
+        res = get_data_sources_status(ctx)
+        return ToolExecutionOutput(
+            tool_name=name,
+            llm_payload=res,
+            sources=res["sources"],
+            audit_meta={"tool": name, "result_count": len(res["sources"])},
+        )
+
+    if name == "find_researcher":
+        query = str(arguments.get("query") or "")
+        res = find_researcher(ctx, query)
+        return ToolExecutionOutput(
+            tool_name=name,
+            llm_payload=res,
+            sources=res["sources"],
+            audit_meta={
+                "tool": name,
+                "query": query,
+                "access_denied": res["access_denied"],
+                "matches": len(res["matches"]),
+                "hypotheses": len(res["hypotheses"]),
+            },
+        )
+
+    if name == "get_scientific_production_report_data":
+        school_code = arguments.get("school_code")
+        year_from = arguments.get("year_from")
+        year_to = arguments.get("year_to")
+        raw_res_id = arguments.get("researcher_id")
+        researcher_uuid: UUID | None = None
+        if raw_res_id:
+            try:
+                researcher_uuid = UUID(str(raw_res_id))
+            except ValueError:
+                return ToolExecutionOutput(
+                    tool_name=name,
+                    llm_payload={"error": "researcher_id inválido (deve ser UUID)."},
+                    sources=[],
+                    audit_meta={"tool": name, "error": "invalid_researcher_id"},
+                )
+
+        cy_a = arguments.get("compare_year_a")
+        cy_b = arguments.get("compare_year_b")
+        compare_years = (
+            (min(int(cy_a), int(cy_b)), max(int(cy_a), int(cy_b)))
+            if cy_a is not None and cy_b is not None
+            else None
+        )
+
+        data = get_scientific_production_report_data(
+            ctx,
+            school_code=str(school_code) if school_code else None,
+            year_from=int(year_from) if year_from is not None else None,
+            year_to=int(year_to) if year_to is not None else None,
+            researcher_id=researcher_uuid,
+            compare_years=compare_years,
+            reference_year=reference_year,
+        )
+
+        if data.get("access_denied"):
+            return ToolExecutionOutput(
+                tool_name=name,
+                llm_payload=data,
+                sources=data.get("sources", []),
+                audit_meta={"tool": name, "access_denied": True},
+            )
+
+        report_bundle: dict[str, Any] | None = None
+        if bool(arguments.get("generate_reports")):
+            title = str(arguments.get("report_title") or "").strip() or (
+                f"Produção Científica da {data['scope']['school_code']}"
+                if data["scope"].get("school_code")
+                else "Produção Científica Institucional — ISLA"
+            )
+            report_bundle = report_generator.save_report_bundle(
+                data,
+                owner_id=ctx.user.id,
+                title=title,
+                output_dir=reports_dir,
+            )
+
+        analytics_summary = {
+            "kpis": data["kpis"],
+            "status_distribution": data["status_distribution"],
+            "annual_evolution": data["annual_evolution"],
+            "top_researchers": data["top_researchers"],
+            "top_students": data["top_students"],
+            "year_comparison": data["year_comparison"],
+            "data_quality": data["data_quality"],
+            "reproducibility_id": data["reproducibility_id"],
+        }
+
+        # Minimização de dados enviados ao LLM: apenas métricas agregadas e metadados autorizados
+        # (nunca envia dumps brutos de publicações ou dados pessoais desnecessários).
+        minimized_llm_payload = {
+            "scope": data["scope"],
+            "reproducibility_id": data["reproducibility_id"],
+            "kpis": data["kpis"],
+            "status_distribution": data["status_distribution"],
+            "annual_evolution": data["annual_evolution"],
+            "quartile_distribution": data["quartile_distribution"],
+            "top_researchers": data["top_researchers"],
+            "top_students": data["top_students"],
+            "year_comparison": data["year_comparison"],
+            "data_quality": data["data_quality"],
+            "sources": data["sources"],
+            "report_bundle": report_bundle,
+        }
+        return ToolExecutionOutput(
+            tool_name=name,
+            llm_payload=minimized_llm_payload,
+            sources=data["sources"],
+            audit_meta={
+                "tool": name,
+                "scope": data["scope"],
+                "reproducibility_id": data["reproducibility_id"],
+                "report_generated": report_bundle is not None,
+            },
+            analytics_summary=analytics_summary,
+            report_bundle=report_bundle,
+        )
+
+    return ToolExecutionOutput(
+        tool_name=name,
+        llm_payload={"error": f"Ferramenta desconhecida: {name}"},
+        sources=[],
+        audit_meta={"tool": name, "error": "unknown_tool"},
+    )

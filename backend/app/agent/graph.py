@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -7,13 +8,17 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent.llm_client import LLMClientError, OpenAICompatibleLLMClient
+from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.state import AgentPlan, AgentTurnResult
+from app.agent.tool_registry import OPENAI_TOOL_SCHEMAS, execute_registered_tool
 from app.agent.tools import (
     ToolContext,
     find_researcher,
     get_data_sources_status,
     get_scientific_production_report_data,
 )
+from app.core.config import get_settings
 from app.models.conversation import Conversation, Message
 from app.models.user import User
 from app.services.audit import record_audit_log
@@ -250,9 +255,120 @@ def _format_sources_footer(sources: list[dict[str, Any]]) -> str:
 
 
 class AgentOrchestrator:
-    def __init__(self, reports_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        reports_dir: Path | None = None,
+        llm_client: OpenAICompatibleLLMClient | None = None,
+    ) -> None:
         self.report_generator = ReportGeneratorService()
         self.reports_dir = reports_dir
+        self.llm_client = llm_client or OpenAICompatibleLLMClient()
+
+    def _run_llm_tool_loop(
+        self,
+        *,
+        ctx: ToolContext,
+        prev_messages: list[Message],
+        user_message: str,
+        reference_year: int | None,
+    ) -> tuple[str, bool, list[str], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None, dict[str, Any] | None]:
+        settings = get_settings()
+        ref_year = reference_year or datetime.now(UTC).year
+
+        role_context = (
+            f"Contexto de sessão (aplicado pelo backend): perfil={ctx.user.role}, "
+            f"ano_referencia={ref_year}, "
+            f"tem_docente_associado={ctx.user.researcher_id is not None}"
+        )
+        if ctx.user.researcher_id is not None:
+            role_context += f", own_researcher_id={ctx.user.researcher_id}"
+
+        llm_messages: list[dict[str, Any]] = [
+            {"role": "system", "content": f"{SYSTEM_PROMPT}\n\n{role_context}"}
+        ]
+        for old in prev_messages[-8:]:
+            if old.role in {"user", "assistant"}:
+                llm_messages.append({"role": old.role, "content": old.content})
+        llm_messages.append({"role": "user", "content": user_message})
+
+        plan_steps: list[str] = ["Interpretar pedido com LLM + Tool Calling"]
+        tool_calls_meta: list[dict[str, Any]] = []
+        sources: list[dict[str, Any]] = []
+        report_bundle: dict[str, Any] | None = None
+        analytics_summary: dict[str, Any] | None = None
+        final_answer: str | None = None
+
+        max_steps = max(1, min(settings.llm_max_tool_steps, 8))
+        for _ in range(max_steps):
+            response = self.llm_client.chat_completion(
+                messages=llm_messages,
+                tools=OPENAI_TOOL_SCHEMAS,
+            )
+
+            if not response.tool_calls:
+                final_answer = (response.content or "").strip()
+                break
+
+            assistant_tool_msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": response.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                        },
+                    }
+                    for tc in response.tool_calls
+                ],
+            }
+            llm_messages.append(assistant_tool_msg)
+
+            for tc in response.tool_calls:
+                plan_steps.append(f"Executar ferramenta `{tc.name}` com validação RBAC")
+                execution = execute_registered_tool(
+                    name=tc.name,
+                    arguments=tc.arguments,
+                    ctx=ctx,
+                    report_generator=self.report_generator,
+                    reports_dir=self.reports_dir,
+                    reference_year=reference_year,
+                )
+                tool_calls_meta.append(execution.audit_meta)
+                if execution.sources:
+                    sources = execution.sources
+                if execution.analytics_summary is not None:
+                    analytics_summary = execution.analytics_summary
+                if execution.report_bundle is not None:
+                    report_bundle = execution.report_bundle
+
+                llm_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": tc.name,
+                        "content": json.dumps(execution.llm_payload, ensure_ascii=False),
+                    }
+                )
+
+        if not final_answer:
+            raise LLMClientError("LLM não produziu resposta final dentro do limite de passos.")
+
+        if sources and "Fontes utilizadas" not in final_answer:
+            final_answer = final_answer + _format_sources_footer(sources)
+
+        needs_clarification = len(tool_calls_meta) == 0 and "?" in final_answer
+        return (
+            final_answer,
+            needs_clarification,
+            plan_steps,
+            tool_calls_meta,
+            sources,
+            report_bundle,
+            analytics_summary,
+        )
 
     def handle_message(
         self,
@@ -294,17 +410,88 @@ class AgentOrchestrator:
         db.add(Message(conversation_id=conversation.id, role="user", content=message_text))
         db.flush()
 
-        # 2. Interpretar intenção e criar plano
+        ctx = ToolContext(db=db, user=user, ip_address=ip_address)
+        execution_mode = "deterministic"
+
+        # 2A. Modo LLM + Tool Calling (quando configurado e pronto)
+        if self.llm_client.is_ready:
+            try:
+                (
+                    answer,
+                    needs_clarification,
+                    plan_steps,
+                    tool_calls,
+                    sources,
+                    report_bundle,
+                    analytics_summary,
+                ) = self._run_llm_tool_loop(
+                    ctx=ctx,
+                    prev_messages=prev_messages,
+                    user_message=message_text,
+                    reference_year=reference_year,
+                )
+                execution_mode = "llm_tool_calling"
+                assistant_msg = Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=answer,
+                    sources_json=sources,
+                    tool_calls_json=tool_calls,
+                )
+                db.add(assistant_msg)
+                db.flush()
+                record_audit_log(
+                    db,
+                    action="agent.chat.turn",
+                    resource_type="conversation",
+                    resource_id=str(conversation.id),
+                    user_id=user.id,
+                    user_role=user.role,
+                    status="success",
+                    details={
+                        "mode": execution_mode,
+                        "needs_clarification": needs_clarification,
+                        "report_generated": report_bundle is not None,
+                        "tools_used": [tc.get("tool") for tc in tool_calls],
+                    },
+                    ip_address=ip_address,
+                )
+                db.commit()
+                db.refresh(assistant_msg)
+                return AgentTurnResult(
+                    conversation_id=conversation.id,
+                    message_id=assistant_msg.id,
+                    answer=answer,
+                    needs_clarification=needs_clarification,
+                    plan=plan_steps,
+                    tool_calls=tool_calls,
+                    sources=sources,
+                    report_bundle=report_bundle,
+                    analytics_summary=analytics_summary,
+                )
+            except LLMClientError as exc:
+                record_audit_log(
+                    db,
+                    action="agent.llm.fallback",
+                    resource_type="conversation",
+                    resource_id=str(conversation.id),
+                    user_id=user.id,
+                    user_role=user.role,
+                    status="error",
+                    details={"reason": str(exc)},
+                    ip_address=ip_address,
+                )
+
+        # 2B. Planeador determinístico (padrão offline ou fallback seguro)
         plan = build_execution_plan(
             message_text,
             previous_scope=previous_scope,
             reference_year=reference_year,
         )
-        ctx = ToolContext(db=db, user=user, ip_address=ip_address)
-        tool_calls: list[dict[str, Any]] = []
-        sources: list[dict[str, Any]] = []
-        report_bundle: dict[str, Any] | None = None
-        analytics_summary: dict[str, Any] | None = None
+        tool_calls = []
+        sources = []
+        report_bundle = None
+        analytics_summary = None
 
         # 3. Executar plano
         if plan.needs_clarification:

@@ -42,13 +42,16 @@ class Settings(BaseSettings):
     reports_output_dir: str = "./reports_output"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-    llm_provider: str = "unconfigured"
+    llm_provider: Literal["unconfigured", "deterministic", "openai_compatible"] = "unconfigured"
+    llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = ""
     llm_api_key: str = ""
+    llm_timeout_seconds: float = 45.0
+    llm_max_tool_steps: int = 5
 
-    @field_validator("auth_mode", mode="before")
+    @field_validator("auth_mode", "llm_provider", mode="before")
     @classmethod
-    def normalize_auth_mode(cls, value: object) -> object:
+    def normalize_enum_fields(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
         return value

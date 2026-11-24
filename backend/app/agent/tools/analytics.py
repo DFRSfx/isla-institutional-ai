@@ -123,7 +123,7 @@ def find_researcher(ctx: ToolContext, query: str) -> dict[str, Any]:
             {
                 **_format_researcher_for_user(r, ctx),
                 "match_type": "name_search",
-                "requires_confirmation": len(name_matches) > 1,
+                "requires_confirmation": True,
             }
             for r in name_matches
             if r.id not in {m.id for m in exact_matches}

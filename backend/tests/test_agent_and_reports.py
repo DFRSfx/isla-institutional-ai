@@ -301,3 +301,37 @@ def test_faculty_cannot_see_other_researchers_in_ranking_pdf_or_excel(
         ]
         assert docentes_names == ["Ana Silva"]
         assert detalhes_names == ["Ana Silva"]
+
+
+def test_agent_requires_identity_confirmation_for_single_name_match(
+    db_session: Session, tmp_path: Path
+) -> None:
+    _seed_cross_source_data(db_session)
+    direction = make_user(db_session, email="direcao@islagaia.pt", role=UserRole.DIRECTION)
+
+    with _build_isolated_client(db_session, tmp_path) as client:
+        # Mesmo existindo apenas um candidato chamado 'Bruno Costa', não deve gerar relatório sem validação
+        name_resp = client.post(
+            "/api/v1/chat",
+            json={"message": "Gera um relatório sobre o docente Bruno Costa"},
+            headers=auth_headers(direction),
+        )
+        assert name_resp.status_code == 200
+        body = name_resp.json()
+        assert body["needs_clarification"] is True
+        assert body["report_bundle"] is None
+        assert body["analytics_summary"] is None
+        assert "Bruno Costa" in body["answer"]
+        assert "Ciência Vitae" in body["answer"]
+
+        # Com identificador exato (Ciência Vitae ID), o agente avança e gera o relatório
+        id_resp = client.post(
+            "/api/v1/chat",
+            json={"message": "Gera um relatório sobre o docente CCCC-2222-DDDD"},
+            headers=auth_headers(direction),
+        )
+        assert id_resp.status_code == 200
+        id_body = id_resp.json()
+        assert id_body["needs_clarification"] is False
+        assert id_body["analytics_summary"]["kpis"]["publications"] == 1
+        assert id_body["report_bundle"] is not None

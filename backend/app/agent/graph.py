@@ -342,10 +342,9 @@ class AgentOrchestrator:
                 elif len(lookup["matches"]) == 1:
                     target_researcher_id = UUID(lookup["matches"][0]["id"])
                     target_label = lookup["matches"][0]["name"]
-                elif len(lookup["hypotheses"]) == 1:
-                    target_researcher_id = UUID(lookup["hypotheses"][0]["id"])
-                    target_label = lookup["hypotheses"][0]["name"]
-                elif len(lookup["matches"]) > 1 or len(lookup["hypotheses"]) > 1:
+                elif len(lookup["matches"]) > 1 or len(lookup["hypotheses"]) >= 1:
+                    # Regra P0 de integridade: correspondência apenas por nome é sempre
+                    # uma hipótese que exige validação (mesmo com 1 único candidato).
                     candidates = lookup["matches"] or lookup["hypotheses"]
                     names_list = "\n".join(
                         f"- {c['name']} ({c.get('school_code') or 'Sem escola'} · CV: `{c.get('ciencia_vitae_id') or 'N/D'}`)"
@@ -353,8 +352,9 @@ class AgentOrchestrator:
                     )
                     plan.needs_clarification = True
                     answer = (
-                        "Foram encontrados vários docentes correspondentes. Indica o nome completo, "
-                        f"email institucional ou Ciência Vitae ID:\n{names_list}"
+                        "A correspondência apenas pelo nome exige validação antes de gerar relatórios. "
+                        "Confirma a identidade indicando o identificador Ciência Vitae ou email institucional:\n"
+                        f"{names_list}"
                     )
                 else:
                     answer = (

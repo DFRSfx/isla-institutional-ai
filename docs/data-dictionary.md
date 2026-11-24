@@ -70,3 +70,16 @@ O `ExcelImportService` executa validação em duas fases (**pré-visualização*
 - Identificadores duplicados dentro do mesmo ficheiro (`ciencia_vitae_id`, `email`, `google_scholar_id`, `scopus_author_id`, `wos_researcher_id`).
 - Erros de nomenclatura de cabeçalhos conhecidos (`Acivo` -> `status_code`).
 - Histórico completo em `excel_imports` (nome do ficheiro, SHA-256, folhas, total de linhas, criados, atualizados, avisos e erros).
+
+## 5. Regras de Negócio e Qualidade Estatística
+
+1. **Separação por categoria (`Teacher` vs `Student`)**:
+   - Todos os registos do Excel (docentes e estudantes) são mantidos em `researchers` para assegurar o cruzamento completo de coautorias institucionais.
+   - Nas análises e relatórios, o ranking de **Docentes Mais Produtivos** (`top_researchers`) inclui exclusivamente registos de categoria `Teacher` (não estudantes); a produção de estudantes (`Student`) é apresentada numa tabela separada (`top_students`).
+2. **Ano editorial futuro (ex.: `2027` com data de referência `2026`)**:
+   - Registos com ano posterior ao ano de referência não são rejeitados automaticamente (podem representar publicações com ano editorial futuro), mas são contabilizados em `data_quality.future_year_publications_count` e explicitados na secção de metodologia e limitações dos relatórios.
+3. **Estado da publicação (`Estado`)**:
+   - As métricas incluem a distribuição por estado (`status_distribution`, ex.: `Publicado`, `Aceite`, `Submetido`) e contagens separadas (`published_count` vs `non_published_count`). A regra final sobre inclusão de estados não publicados nos indicadores principais aguarda validação institucional com o ISLA.
+4. **Notas pendentes de confirmação institucional**:
+   - Confirmar qual a versão oficial atual do ficheiro da intranet (versão de 121 registos vs versão anterior de 99 registos).
+   - Confirmar se o perfil `direction` deve manter acesso a campos sensíveis (`Email`, `Observações`, `Valor`).

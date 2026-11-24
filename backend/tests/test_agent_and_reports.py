@@ -335,3 +335,77 @@ def test_agent_requires_identity_confirmation_for_single_name_match(
         assert id_body["needs_clarification"] is False
         assert id_body["analytics_summary"]["kpis"]["publications"] == 1
         assert id_body["report_bundle"] is not None
+
+
+def test_category_separation_status_distribution_and_future_year_flag(
+    db_session: Session, tmp_path: Path
+) -> None:
+    ExcelImportService().import_workbook(
+        db_session, build_synthetic_researchers_xlsx(), "docentes.xlsx"
+    )
+    payload = [
+        *SAMPLE_PORTAL_PAYLOAD_V1,
+        {
+            "ID": "PUB-2027-STUDENT",
+            "authors": "EEEE-3333-FFFF",
+            "Ciência ID": "EEEE-3333-FFFF",  # Carla Duarte (Categoria = Student)
+            "Email": "carla.duarte@isla.test",
+            "Nome": "Carla Duarte",
+            "Afiliação": "ISLA Gaia",
+            "Escola": "",
+            "Ano": 2027,
+            "Tipo Publicação": "Book",
+            "Title": "Future Year Institutional Publication",
+            "Estado": "Aceite",
+            "Indexada Scopus": False,
+            "Indexada WoS": False,
+            "Numero de Citações": 0,
+            "Referencias": 10,
+            "Open Access": False,
+        },
+    ]
+    PortalSyncService().sync_publications(
+        db_session,
+        prefetched=PortalFetchResult(
+            records=payload,
+            source_version="30",
+            reported_record_count=3,
+            cache_ttl_minutes=1440,
+            endpoint="/api/powerbi/publications",
+            forced_nocache=False,
+        ),
+    )
+
+    direction = make_user(db_session, email="direcao@islagaia.pt", role=UserRole.DIRECTION)
+    orchestrator = AgentOrchestrator(reports_dir=tmp_path)
+    result = orchestrator.handle_message(
+        db_session,
+        user=direction,
+        message_text="Gera um relatório institucional do ISLA com PDF e Excel.",
+        reference_year=2026,
+    )
+
+    summary = result.analytics_summary
+    assert summary is not None
+    # Estudante (Carla Duarte) não entra no ranking de docentes, mas surge em top_students
+    teacher_names = [r["name"] for r in summary["top_researchers"]]
+    student_names = [r["name"] for r in summary["top_students"]]
+    assert "Carla Duarte" not in teacher_names
+    assert student_names == ["Carla Duarte"]
+    assert "Ana Silva" in teacher_names
+
+    # Distribuição por estado e sinalização de ano editorial futuro (2027 > 2026)
+    assert summary["status_distribution"]["Publicado"] == 2
+    assert summary["status_distribution"]["Aceite"] == 1
+    assert summary["kpis"]["published_count"] == 2
+    assert summary["kpis"]["non_published_count"] == 1
+    assert summary["data_quality"]["future_year_publications_count"] == 1
+
+    # Verificar na folha 'Indicadores' e 'Fontes e Critérios' do Excel gerado
+    assert result.report_bundle is not None
+    xlsx_path = tmp_path / f"{result.report_bundle['report_id']}.xlsx"
+    wb = openpyxl.load_workbook(xlsx_path)
+    ind_pairs = [r[:2] for r in wb["Indicadores"].iter_rows(values_only=True)]
+    assert ("Aceite", 1) in ind_pairs
+    src_rows = {row[0]: row[1] for row in wb["Fontes e Critérios"].iter_rows(values_only=True) if row[0]}
+    assert src_rows["Publicações com ano editorial futuro (> 2026)"] == 1

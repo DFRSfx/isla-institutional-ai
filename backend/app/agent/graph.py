@@ -369,6 +369,7 @@ class AgentOrchestrator:
                     year_from=plan.year_from,
                     year_to=plan.year_to,
                     compare_years=plan.compare_years,
+                    reference_year=reference_year,
                 )
                 sources = data["sources"]
                 tool_calls.append(
@@ -410,6 +411,7 @@ class AgentOrchestrator:
                 year_to=plan.year_to,
                 researcher_id=plan.researcher_id,
                 compare_years=plan.compare_years,
+                reference_year=reference_year,
             )
             sources = data["sources"]
             tool_calls.append(
@@ -421,9 +423,12 @@ class AgentOrchestrator:
             )
             analytics_summary = {
                 "kpis": data["kpis"],
+                "status_distribution": data["status_distribution"],
                 "annual_evolution": data["annual_evolution"],
                 "top_researchers": data["top_researchers"],
+                "top_students": data["top_students"],
                 "year_comparison": data["year_comparison"],
+                "data_quality": data["data_quality"],
                 "reproducibility_id": data["reproducibility_id"],
             }
             scope_title = (

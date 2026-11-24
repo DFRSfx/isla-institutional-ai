@@ -202,9 +202,11 @@ class ReportGeneratorService:
 
         scope = report_data["scope"]
         kpis = report_data["kpis"]
+        status_dist = report_data.get("status_distribution") or {}
         annual = report_data["annual_evolution"]
         quartiles = report_data["quartile_distribution"]
         top_researchers = report_data["top_researchers"]
+        top_students = report_data.get("top_students") or []
         comparison = report_data.get("year_comparison")
         quality = report_data["data_quality"]
         sources = report_data["sources"]
@@ -269,7 +271,14 @@ class ReportGeneratorService:
             ["Publicações Q1 / Q2 / Q3 / Q4", f"{kpis['q1']} / {kpis['q2']} / {kpis['q3']} / {kpis['q4']}"],
             ["Total de citações (média)", f"{kpis['citations']} ({kpis['avg_citations']})"],
             ["Open Access", f"{kpis['open_access']} ({kpis['open_access_pct']}%)"],
-            ["Docentes no âmbito (intranet)", str(kpis["scoped_researchers_count"])],
+            [
+                "Publicações por estado",
+                ", ".join(f"{k}: {v}" for k, v in status_dist.items()) or "N/D",
+            ],
+            [
+                "Investigadores no âmbito (Docentes / Estudantes)",
+                f"{kpis.get('scoped_teachers_count', kpis['scoped_researchers_count'])} / {kpis.get('scoped_students_count', 0)}",
+            ],
         ]
         story.append(_styled_table(kpi_rows, col_widths=[9.5 * cm, 7.5 * cm]))
         story.append(Spacer(1, 0.4 * cm))
@@ -307,7 +316,7 @@ class ReportGeneratorService:
         story.append(Spacer(1, 0.4 * cm))
 
         if top_researchers:
-            story.append(Paragraph("Docentes Mais Produtivos (no âmbito analisado)", h2))
+            story.append(Paragraph("Docentes Mais Produtivos (Categoria: Teacher)", h2))
             res_rows = [["Docente", "Escola", "Pubs", "Scopus", "WoS", "Q1", "Citações"]]
             for r in top_researchers:
                 res_rows.append(
@@ -324,6 +333,29 @@ class ReportGeneratorService:
             story.append(
                 _styled_table(
                     res_rows,
+                    col_widths=[6.8 * cm, 1.8 * cm, 1.6 * cm, 1.7 * cm, 1.5 * cm, 1.4 * cm, 2.2 * cm],
+                )
+            )
+            story.append(Spacer(1, 0.4 * cm))
+
+        if top_students:
+            story.append(Paragraph("Produção Científica de Estudantes (Categoria: Student)", h2))
+            stu_rows = [["Estudante", "Escola", "Pubs", "Scopus", "WoS", "Q1", "Citações"]]
+            for r in top_students:
+                stu_rows.append(
+                    [
+                        _safe_xml(r["name"]),
+                        r.get("school_code") or "-",
+                        str(r["publications"]),
+                        str(r["scopus"]),
+                        str(r["wos"]),
+                        str(r["q1"]),
+                        str(r["citations"]),
+                    ]
+                )
+            story.append(
+                _styled_table(
+                    stu_rows,
                     col_widths=[6.8 * cm, 1.8 * cm, 1.6 * cm, 1.7 * cm, 1.5 * cm, 1.4 * cm, 2.2 * cm],
                 )
             )
@@ -396,6 +428,7 @@ class ReportGeneratorService:
         # 8. Metodologia e limitações
         story.append(Paragraph("7. Metodologia e Limitações", h2))
         lim_lines = [
+            f"Publicações com ano editorial futuro (> {quality.get('reference_year', 'atual')}): {quality.get('future_year_publications_count', 0)}.",
             f"Publicações sem DOI normalizado: {quality['missing_doi_count']}.",
             f"Publicações sem quartil (Q1–Q4): {quality['missing_quartile_count']}.",
             f"Ligações de autoria sem correspondência exata na intranet: {quality['unmatched_author_links_count']}.",
@@ -438,6 +471,7 @@ class ReportGeneratorService:
 
         scope = report_data["scope"]
         kpis = report_data["kpis"]
+        status_dist = report_data.get("status_distribution") or {}
         annual = report_data["annual_evolution"]
         quartiles = report_data["quartile_distribution"]
         top_researchers = report_data["top_researchers"]
@@ -504,6 +538,14 @@ class ReportGeneratorService:
         style_header_row(ws_ind, q_start)
         for k, v in quartiles.items():
             ws_ind.append([k, v])
+
+        if status_dist:
+            ws_ind.append([])
+            s_start = ws_ind.max_row + 1
+            ws_ind.append(["Estado da Publicação", "Publicações"])
+            style_header_row(ws_ind, s_start)
+            for st_label, st_count in status_dist.items():
+                ws_ind.append([st_label, st_count])
 
         if comparison:
             ws_ind.append([])
@@ -662,6 +704,12 @@ class ReportGeneratorService:
         style_header_row(ws_src, crit_row)
         ws_src.append(["ID de reprodutibilidade", report_data["reproducibility_id"]])
         ws_src.append(["Critérios (JSON)", json.dumps(scope, ensure_ascii=False)])
+        ws_src.append(
+            [
+                f"Publicações com ano editorial futuro (> {quality.get('reference_year', 'atual')})",
+                quality.get("future_year_publications_count", 0),
+            ]
+        )
         ws_src.append(["Publicações sem DOI", quality["missing_doi_count"]])
         ws_src.append(["Publicações sem quartil", quality["missing_quartile_count"]])
         ws_src.append(["Autores sem correspondência exata", quality["unmatched_author_links_count"]])

@@ -1,4 +1,5 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -234,6 +235,10 @@ def _build_year_comparison(
     }
 
 
+def _is_student_category(category: str | None) -> bool:
+    return normalize_text(category) in {"student", "estudante", "aluno", "aluna"}
+
+
 def get_scientific_production_report_data(
     ctx: ToolContext,
     *,
@@ -243,6 +248,7 @@ def get_scientific_production_report_data(
     researcher_id: UUID | None = None,
     compare_years: tuple[int, int] | None = None,
     top_n: int = 10,
+    reference_year: int | None = None,
 ) -> dict[str, Any]:
     """
     Executa análise determinística cruzada entre Portal Científico e Excel de docentes.
@@ -314,11 +320,26 @@ def get_scientific_production_report_data(
         res_stmt = res_stmt.where(Researcher.id == researcher_id)
     scoped_researchers = list(ctx.db.scalars(res_stmt).all())
 
-    # Indicadores globais
+    # Indicadores globais e distribuição por estado
+    ref_year = reference_year or datetime.now(UTC).year
+    status_counter: Counter[str] = Counter()
+    published_count = 0
+    for pub in scoped_pubs:
+        label = (pub.status or "Sem estado").strip() or "Sem estado"
+        status_counter[label] += 1
+        if normalize_text(label) in {"publicado", "published"}:
+            published_count += 1
+    status_distribution = dict(status_counter)
+
+    scoped_teachers_count = sum(1 for r in scoped_researchers if not _is_student_category(r.category))
+    scoped_students_count = sum(1 for r in scoped_researchers if _is_student_category(r.category))
+
     base_metrics = _compute_year_bucket_metrics(scoped_pubs)
     total_pubs = base_metrics["publications"]
     kpis = {
         **base_metrics,
+        "published_count": published_count,
+        "non_published_count": total_pubs - published_count,
         "scopus_pct": round((base_metrics["scopus"] / total_pubs) * 100, 1) if total_pubs else 0.0,
         "wos_pct": round((base_metrics["wos"] / total_pubs) * 100, 1) if total_pubs else 0.0,
         "indexed_pct": round((base_metrics["indexed_scopus_or_wos"] / total_pubs) * 100, 1)
@@ -329,6 +350,8 @@ def get_scientific_production_report_data(
         else 0.0,
         "avg_citations": round(base_metrics["citations"] / total_pubs, 2) if total_pubs else 0.0,
         "scoped_researchers_count": len(scoped_researchers),
+        "scoped_teachers_count": scoped_teachers_count,
+        "scoped_students_count": scoped_students_count,
     }
 
     # Evolução anual
@@ -358,9 +381,10 @@ def get_scientific_production_report_data(
         "Sem quartil": sum(1 for p in scoped_pubs if p.quartile not in {"Q1", "Q2", "Q3", "Q4"}),
     }
 
-    # Docentes mais produtivos (cruzamento publicações x intranet)
+    # Docentes e estudantes mais produtivos (separados por categoria; RBAC aplicado)
     allow_internal_all = can_view_all_researchers(ctx.user.role)
-    prod_by_researcher: dict[UUID, dict[str, Any]] = {}
+    prod_by_teacher: dict[UUID, dict[str, Any]] = {}
+    prod_by_student: dict[UUID, dict[str, Any]] = {}
     unmatched_authors_count = 0
     name_hypotheses_count = 0
 
@@ -386,8 +410,9 @@ def get_scientific_production_report_data(
                 continue
 
             is_self = ctx.user.researcher_id == r.id
-            if r.id not in prod_by_researcher:
-                prod_by_researcher[r.id] = {
+            target_bucket = prod_by_student if _is_student_category(r.category) else prod_by_teacher
+            if r.id not in target_bucket:
+                target_bucket[r.id] = {
                     "researcher_id": str(r.id),
                     "name": r.name,
                     "ciencia_vitae_id": r.ciencia_vitae_id,
@@ -402,7 +427,7 @@ def get_scientific_production_report_data(
                     "q1": 0,
                     "citations": 0,
                 }
-            row = prod_by_researcher[r.id]
+            row = target_bucket[r.id]
             row["publications"] += 1
             if pub.is_indexed_scopus:
                 row["scopus"] += 1
@@ -413,7 +438,11 @@ def get_scientific_production_report_data(
             row["citations"] += pub.citations_count
 
     top_researchers = sorted(
-        prod_by_researcher.values(),
+        prod_by_teacher.values(),
+        key=lambda x: (-x["publications"], -x["citations"], x["name"]),
+    )[:top_n]
+    top_students = sorted(
+        prod_by_student.values(),
         key=lambda x: (-x["publications"], -x["citations"], x["name"]),
     )[:top_n]
 
@@ -427,20 +456,32 @@ def get_scientific_production_report_data(
     # Qualidade e lacunas de dados
     missing_doi_count = sum(1 for p in scoped_pubs if not p.doi)
     missing_quartile_count = quartile_distribution["Sem quartil"]
+    future_year_publications_count = sum(
+        1 for p in scoped_pubs if p.year is not None and p.year > ref_year
+    )
     duplicate_cv_researchers_count = sum(
         1 for r in scoped_researchers if "duplicate_ciencia_vitae_id" in (r.data_quality_flags or [])
     )
+    dictionary_notes = [
+        "Os códigos da coluna 'Acivo' (Y, N, A, O) e 'Grau' (D, M, L, N) são apresentados no formato bruto até confirmação oficial do dicionário de dados pelo ISLA.",
+        "Correspondências apenas por nome não são associadas automaticamente sem validação humana.",
+        "O ranking de docentes inclui apenas registos classificados como Teacher; estudantes (Student) são apresentados separadamente.",
+    ]
+    if future_year_publications_count > 0:
+        dictionary_notes.append(
+            f"Foram mantidas {future_year_publications_count} publicação(ões) com ano editorial posterior a {ref_year} (sinalizadas para transparência)."
+        )
+
     data_quality = {
+        "reference_year": ref_year,
         "missing_year_count": missing_year_count,
+        "future_year_publications_count": future_year_publications_count,
         "missing_doi_count": missing_doi_count,
         "missing_quartile_count": missing_quartile_count,
         "unmatched_author_links_count": unmatched_authors_count,
         "name_hypotheses_pending_validation": name_hypotheses_count,
         "duplicate_cv_researchers_count": duplicate_cv_researchers_count,
-        "unconfirmed_dictionary_notes": [
-            "Os códigos da coluna 'Acivo' (Y, N, A, O) e 'Grau' (D, M, L, N) são apresentados no formato bruto até confirmação oficial do dicionário de dados pelo ISLA.",
-            "Correspondências apenas por nome não são associadas automaticamente sem validação humana.",
-        ],
+        "unconfirmed_dictionary_notes": dictionary_notes,
     }
 
     sources = collect_latest_sources(ctx.db)
@@ -471,9 +512,11 @@ def get_scientific_production_report_data(
         "scope": scope,
         "reproducibility_id": reproducibility_hash,
         "kpis": kpis,
+        "status_distribution": status_distribution,
         "annual_evolution": annual_evolution,
         "quartile_distribution": quartile_distribution,
         "top_researchers": top_researchers,
+        "top_students": top_students,
         "year_comparison": year_comparison,
         "publications": [_serialize_pub_row(p, ctx) for p in scoped_pubs],
         "researchers": [_format_researcher_for_user(r, ctx) for r in visible_researchers],

@@ -130,7 +130,7 @@ def test_agent_est_report_followup_comparison_and_pdf_excel_downloads(
         assert pdf_resp.content.startswith(b"%PDF-")
         assert len(pdf_resp.content) > 2000
 
-        # 4. Download do Excel (verificar as 6 folhas exigidas na secção 7)
+        # 4. Download do Excel (verificar as 7 folhas estruturadas incluindo Estudantes)
         xlsx_resp = client.get(
             body2["report_bundle"]["excel_url"],
             headers=auth_headers(direction),
@@ -142,6 +142,7 @@ def test_agent_est_report_followup_comparison_and_pdf_excel_downloads(
             "Indicadores",
             "Publicações",
             "Docentes",
+            "Estudantes",
             "Dados Detalhados",
             "Fontes e Critérios",
         ]
@@ -299,8 +300,14 @@ def test_faculty_cannot_see_other_researchers_in_ranking_pdf_or_excel(
             for row in wb["Dados Detalhados"].iter_rows(min_row=2, values_only=True)
             if row[0]
         ]
+        estudantes_names = [
+            row[0]
+            for row in wb["Estudantes"].iter_rows(min_row=2, values_only=True)
+            if row[0]
+        ]
         assert docentes_names == ["Ana Silva"]
         assert detalhes_names == ["Ana Silva"]
+        assert estudantes_names == []
 
 
 def test_agent_requires_identity_confirmation_for_single_name_match(
@@ -343,14 +350,25 @@ def test_category_separation_status_distribution_and_future_year_flag(
     ExcelImportService().import_workbook(
         db_session, build_synthetic_researchers_xlsx(), "docentes.xlsx"
     )
+    # Acrescentar investigador com categoria desconhecida/vazia (não pode entrar em Docentes nem Estudantes)
+    unknown_cat_researcher = Researcher(
+        ciencia_vitae_id="9999-XXXX-8888",
+        name="Eva Externa",
+        normalized_name="eva externa",
+        email="eva.externa@isla.test",
+        category="Convidado",
+    )
+    db_session.add(unknown_cat_researcher)
+    db_session.commit()
+
     payload = [
         *SAMPLE_PORTAL_PAYLOAD_V1,
         {
             "ID": "PUB-2027-STUDENT",
-            "authors": "EEEE-3333-FFFF",
-            "Ciência ID": "EEEE-3333-FFFF",  # Carla Duarte (Categoria = Student)
-            "Email": "carla.duarte@isla.test",
-            "Nome": "Carla Duarte",
+            "authors": "EEEE-3333-FFFF;9999-XXXX-8888",
+            "Ciência ID": "EEEE-3333-FFFF;#9999-XXXX-8888",
+            "Email": "carla.duarte@isla.test;#eva.externa@isla.test",
+            "Nome": "Carla Duarte; Eva Externa",
             "Afiliação": "ISLA Gaia",
             "Escola": "",
             "Ano": 2027,
@@ -387,12 +405,15 @@ def test_category_separation_status_distribution_and_future_year_flag(
 
     summary = result.analytics_summary
     assert summary is not None
-    # Estudante (Carla Duarte) não entra no ranking de docentes, mas surge em top_students
+    # Estudante (Carla) e categoria desconhecida (Eva) não entram no ranking de docentes
     teacher_names = [r["name"] for r in summary["top_researchers"]]
     student_names = [r["name"] for r in summary["top_students"]]
     assert "Carla Duarte" not in teacher_names
+    assert "Eva Externa" not in teacher_names
+    assert "Eva Externa" not in student_names
     assert student_names == ["Carla Duarte"]
     assert "Ana Silva" in teacher_names
+    assert summary["kpis"]["scoped_unknown_category_count"] == 1
 
     # Distribuição por estado e sinalização de ano editorial futuro (2027 > 2026)
     assert summary["status_distribution"]["Publicado"] == 2
@@ -401,11 +422,20 @@ def test_category_separation_status_distribution_and_future_year_flag(
     assert summary["kpis"]["non_published_count"] == 1
     assert summary["data_quality"]["future_year_publications_count"] == 1
 
-    # Verificar na folha 'Indicadores' e 'Fontes e Critérios' do Excel gerado
+    # Verificar folhas 'Indicadores', 'Docentes', 'Estudantes' e 'Fontes e Critérios' do Excel gerado
     assert result.report_bundle is not None
     xlsx_path = tmp_path / f"{result.report_bundle['report_id']}.xlsx"
     wb = openpyxl.load_workbook(xlsx_path)
     ind_pairs = [r[:2] for r in wb["Indicadores"].iter_rows(values_only=True)]
     assert ("Aceite", 1) in ind_pairs
+    docentes_names = [
+        row[0] for row in wb["Docentes"].iter_rows(min_row=2, values_only=True) if row[0]
+    ]
+    estudantes_names = [
+        row[0] for row in wb["Estudantes"].iter_rows(min_row=2, values_only=True) if row[0]
+    ]
+    assert "Carla Duarte" not in docentes_names
+    assert "Eva Externa" not in docentes_names
+    assert estudantes_names == ["Carla Duarte"]
     src_rows = {row[0]: row[1] for row in wb["Fontes e Critérios"].iter_rows(values_only=True) if row[0]}
     assert src_rows["Publicações com ano editorial futuro (> 2026)"] == 1

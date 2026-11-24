@@ -1,6 +1,6 @@
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -235,8 +235,15 @@ def _build_year_comparison(
     }
 
 
-def _is_student_category(category: str | None) -> bool:
-    return normalize_text(category) in {"student", "estudante", "aluno", "aluna"}
+def _classify_researcher_category(
+    category: str | None,
+) -> Literal["teacher", "student", "unknown"]:
+    norm = normalize_text(category)
+    if norm in {"teacher", "docente", "professor", "professora"}:
+        return "teacher"
+    if norm in {"student", "estudante", "aluno", "aluna"}:
+        return "student"
+    return "unknown"
 
 
 def get_scientific_production_report_data(
@@ -331,8 +338,15 @@ def get_scientific_production_report_data(
             published_count += 1
     status_distribution = dict(status_counter)
 
-    scoped_teachers_count = sum(1 for r in scoped_researchers if not _is_student_category(r.category))
-    scoped_students_count = sum(1 for r in scoped_researchers if _is_student_category(r.category))
+    scoped_teachers_count = sum(
+        1 for r in scoped_researchers if _classify_researcher_category(r.category) == "teacher"
+    )
+    scoped_students_count = sum(
+        1 for r in scoped_researchers if _classify_researcher_category(r.category) == "student"
+    )
+    scoped_unknown_category_count = sum(
+        1 for r in scoped_researchers if _classify_researcher_category(r.category) == "unknown"
+    )
 
     base_metrics = _compute_year_bucket_metrics(scoped_pubs)
     total_pubs = base_metrics["publications"]
@@ -352,6 +366,7 @@ def get_scientific_production_report_data(
         "scoped_researchers_count": len(scoped_researchers),
         "scoped_teachers_count": scoped_teachers_count,
         "scoped_students_count": scoped_students_count,
+        "scoped_unknown_category_count": scoped_unknown_category_count,
     }
 
     # Evolução anual
@@ -381,10 +396,11 @@ def get_scientific_production_report_data(
         "Sem quartil": sum(1 for p in scoped_pubs if p.quartile not in {"Q1", "Q2", "Q3", "Q4"}),
     }
 
-    # Docentes e estudantes mais produtivos (separados por categoria; RBAC aplicado)
+    # Docentes, estudantes e categorias desconhecidas (separados explicitamente; RBAC aplicado)
     allow_internal_all = can_view_all_researchers(ctx.user.role)
     prod_by_teacher: dict[UUID, dict[str, Any]] = {}
     prod_by_student: dict[UUID, dict[str, Any]] = {}
+    prod_by_unknown: dict[UUID, dict[str, Any]] = {}
     unmatched_authors_count = 0
     name_hypotheses_count = 0
 
@@ -410,7 +426,13 @@ def get_scientific_production_report_data(
                 continue
 
             is_self = ctx.user.researcher_id == r.id
-            target_bucket = prod_by_student if _is_student_category(r.category) else prod_by_teacher
+            cat_kind = _classify_researcher_category(r.category)
+            if cat_kind == "teacher":
+                target_bucket = prod_by_teacher
+            elif cat_kind == "student":
+                target_bucket = prod_by_student
+            else:
+                target_bucket = prod_by_unknown
             if r.id not in target_bucket:
                 target_bucket[r.id] = {
                     "researcher_id": str(r.id),
@@ -443,6 +465,10 @@ def get_scientific_production_report_data(
     )[:top_n]
     top_students = sorted(
         prod_by_student.values(),
+        key=lambda x: (-x["publications"], -x["citations"], x["name"]),
+    )[:top_n]
+    top_unknown_category = sorted(
+        prod_by_unknown.values(),
         key=lambda x: (-x["publications"], -x["citations"], x["name"]),
     )[:top_n]
 
@@ -517,6 +543,7 @@ def get_scientific_production_report_data(
         "quartile_distribution": quartile_distribution,
         "top_researchers": top_researchers,
         "top_students": top_students,
+        "top_unknown_category": top_unknown_category,
         "year_comparison": year_comparison,
         "publications": [_serialize_pub_row(p, ctx) for p in scoped_pubs],
         "researchers": [_format_researcher_for_user(r, ctx) for r in visible_researchers],

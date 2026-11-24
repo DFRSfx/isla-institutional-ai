@@ -475,6 +475,7 @@ class ReportGeneratorService:
         annual = report_data["annual_evolution"]
         quartiles = report_data["quartile_distribution"]
         top_researchers = report_data["top_researchers"]
+        top_students = report_data.get("top_students") or []
         comparison = report_data.get("year_comparison")
         publications = report_data["publications"]
         researchers = report_data["researchers"]
@@ -642,7 +643,44 @@ class ReportGeneratorService:
         ws_doc.freeze_panes = "A2"
         autosize(ws_doc)
 
-        # Folha 5: Dados Detalhados
+        # Folha 5: Estudantes (separados dos docentes, respeitando RBAC)
+        ws_stu = wb.create_sheet("Estudantes")
+        ws_stu.append(
+            [
+                "Estudante",
+                "Ciência Vitae ID",
+                "Escola",
+                "Grau (código bruto)",
+                "Estado (código bruto)",
+                "Categoria",
+                "Publicações",
+                "Scopus",
+                "WoS",
+                "Q1",
+                "Citações",
+            ]
+        )
+        style_header_row(ws_stu, 1)
+        for r in top_students:
+            ws_stu.append(
+                [
+                    r["name"],
+                    r["ciencia_vitae_id"],
+                    r["school_code"],
+                    r["degree_code"],
+                    r["status_code"],
+                    r["category"],
+                    r["publications"],
+                    r["scopus"],
+                    r["wos"],
+                    r["q1"],
+                    r["citations"],
+                ]
+            )
+        ws_stu.freeze_panes = "A2"
+        autosize(ws_stu)
+
+        # Folha 6: Dados Detalhados
         ws_det = wb.create_sheet("Dados Detalhados")
         ws_det.append(
             [

@@ -73,9 +73,9 @@ O `ExcelImportService` executa validação em duas fases (**pré-visualização*
 
 ## 5. Regras de Negócio e Qualidade Estatística
 
-1. **Separação por categoria (`Teacher` vs `Student`)**:
-   - Todos os registos do Excel (docentes e estudantes) são mantidos em `researchers` para assegurar o cruzamento completo de coautorias institucionais.
-   - Nas análises e relatórios, o ranking de **Docentes Mais Produtivos** (`top_researchers`) inclui exclusivamente registos de categoria `Teacher` (não estudantes); a produção de estudantes (`Student`) é apresentada numa tabela separada (`top_students`).
+1. **Separação explícita por categoria (`Teacher` vs `Student` vs desconhecida)**:
+   - Todos os registos do Excel são mantidos em `researchers` para assegurar o cruzamento completo de coautorias institucionais.
+   - Nas análises e relatórios (PDF e Excel), o ranking de **Docentes** (`top_researchers` / folha `Docentes`) inclui exclusivamente registos reconhecidos explicitamente como `Teacher`; os registos `Student` são apresentados separadamente (`top_students` / folha `Estudantes`); categorias vazias ou desconhecidas ficam isoladas em `top_unknown_category` e nunca entram automaticamente no ranking de docentes.
 2. **Ano editorial futuro (ex.: `2027` com data de referência `2026`)**:
    - Registos com ano posterior ao ano de referência não são rejeitados automaticamente (podem representar publicações com ano editorial futuro), mas são contabilizados em `data_quality.future_year_publications_count` e explicitados na secção de metodologia e limitações dos relatórios.
 3. **Estado da publicação (`Estado`)**:

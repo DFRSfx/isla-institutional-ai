@@ -166,8 +166,8 @@ def login(
                     detail=str(exc),
                 ) from exc
 
-    # Fallback local (apenas permitido fora do modo 'institutional')
-    if user is None and auth_mode != "institutional":
+    # Fallback local (apenas permitido explicitamente em 'local' ou 'hybrid')
+    if user is None and auth_mode in {"local", "hybrid"}:
         email_lower = identifier.lower()
         local_user = db.scalar(select(User).where(User.email == email_lower))
         if (

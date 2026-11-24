@@ -1,5 +1,7 @@
 import httpx
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -237,3 +239,13 @@ def test_institutional_ldap_rejects_unknown_or_missing_roles(db_session: Session
                 json={"username": uname, "password": "secret"},
             )
             assert resp.status_code == 403
+
+
+def test_settings_rejects_invalid_auth_mode_typos() -> None:
+    for invalid in ("instutional", "ldap", "", "none"):
+        with pytest.raises(ValidationError):
+            Settings(auth_mode=invalid)  # type: ignore[arg-type]
+
+    for valid in ("local", "hybrid", "institutional", "  INSTITUTIONAL  "):
+        cfg = Settings(auth_mode=valid)  # type: ignore[arg-type]
+        assert cfg.auth_mode in {"local", "hybrid", "institutional"}

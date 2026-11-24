@@ -1,6 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEV_DEFAULT_JWT_SECRET = "dev-only-insecure-secret-change-in-production-32bytes"
@@ -24,7 +25,7 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 60
 
     # Autenticação institucional (LDAP API — X-API-Key mantido estritamente no backend)
-    auth_mode: str = "hybrid"  # hybrid | institutional | local
+    auth_mode: Literal["local", "hybrid", "institutional"] = "hybrid"
     institutional_auth_base_url: str = "https://auth.dariosoares.dev"
     institutional_auth_api_key: str = ""
     institutional_auth_origin: str = "http://localhost:5173"
@@ -44,6 +45,13 @@ class Settings(BaseSettings):
     llm_provider: str = "unconfigured"
     llm_model: str = ""
     llm_api_key: str = ""
+
+    @field_validator("auth_mode", mode="before")
+    @classmethod
+    def normalize_auth_mode(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":

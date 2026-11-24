@@ -1,10 +1,26 @@
+import ipaddress
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEV_DEFAULT_JWT_SECRET = "dev-only-insecure-secret-change-in-production-32bytes"
+LOCAL_LLM_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "ollama", "vllm", "host.docker.internal"})
+
+
+def is_private_or_local_url(url: str) -> bool:
+    host = (urlparse(url).hostname or "").strip().lower()
+    if not host:
+        return False
+    if host in LOCAL_LLM_HOSTS or host.endswith((".local", ".internal")):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback
+    except ValueError:
+        return False
 
 
 class Settings(BaseSettings):
@@ -43,9 +59,10 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     llm_provider: Literal["unconfigured", "deterministic", "openai_compatible"] = "unconfigured"
-    llm_base_url: str = "https://api.openai.com/v1"
+    llm_base_url: str = "http://localhost:11434/v1"
     llm_model: str = ""
     llm_api_key: str = ""
+    llm_allow_external_endpoints: bool = False
     llm_timeout_seconds: float = 45.0
     llm_max_tool_steps: int = 5
 
@@ -58,6 +75,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_security(self) -> "Settings":
+        if (
+            self.llm_provider == "openai_compatible"
+            and not self.llm_allow_external_endpoints
+            and not is_private_or_local_url(self.llm_base_url)
+        ):
+            raise ValueError(
+                "Por conformidade RGPD/NIS2, LLM_BASE_URL deve apontar para um servidor local ou "
+                "rede privada (ex.: http://localhost:11434/v1). Defina LLM_ALLOW_EXTERNAL_ENDPOINTS=true "
+                "apenas mediante aprovação institucional formal."
+            )
+
         if self.app_env.strip().lower() in {"production", "prod"}:
             secret = self.jwt_secret_key.strip()
             if (

@@ -53,8 +53,10 @@ Mesmo quando um docente consulta publicações institucionais, os seguintes camp
 - **Proteção contra SQL Injection**: todas as queries usam ORM SQLAlchemy 2.0 / parâmetros ligados (*bound parameters*); o agente nunca executa SQL arbitrário escrito livremente pelo LLM.
 - **Auditoria**: operações críticas (login, falha de acesso, sincronização da API, importação Excel, consultas restritas) são registadas em `audit_logs`.
 
-## 5. Política de Desenvolvimento com LLM Externo
+## 5. Soberania de Dados, RGPD e NIS2 (LLM Local / On-Premise)
 
-Enquanto não existir aprovação institucional formal do contrato de processamento/retenção de dados de um fornecedor LLM:
-- O desenvolvimento e os testes funcionais decorrem com **dados de teste anonimizados/sintéticos**.
-- Os dados enviados ao LLM são minimizados (apenas métricas agregadas ou registos estritamente necessários e autorizados para o utilizador autenticado).
+Por requisitos de proteção de dados (**RGPD**) e cibersegurança institucional (**Diretiva NIS2**), a arquitetura privilegia execução de **LLM local / on-premise** (ex.: Ollama ou vLLM na infraestrutura interna do ISLA), evitando transferências de dados institucionais para serviços cloud externos:
+
+- **Bloqueio técnico por defeito (`LLM_ALLOW_EXTERNAL_ENDPOINTS=false`)**: `Settings` valida `LLM_BASE_URL` no arranque e recusa qualquer endereço externo/público, aceitando apenas `localhost`, serviços internos Docker (`ollama`, `vllm`) ou endereços privados LAN (RFC-1918).
+- **Minimização de dados ao LLM**: mesmo com LLM local, o `tool_registry.py` envia apenas métricas agregadas e metadados autorizados para o perfil do utilizador autenticado (nunca dumps brutos da base de dados nem credenciais).
+- **Modelos locais recomendados com suporte a *tool calling* e português**: `qwen2.5:7b-instruct`, `qwen2.5:14b-instruct` ou `llama3.1:8b` via `docker compose --profile local-llm up -d`.

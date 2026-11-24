@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -34,10 +36,20 @@ def _seed_data(db: Session) -> None:
     )
 
 
-def test_llm_client_readiness_rules() -> None:
+def test_llm_client_readiness_and_local_only_rgpd_guardrail() -> None:
     # Desativado por defeito
     assert OpenAICompatibleLLMClient(Settings()).is_ready is False
-    # Remoto exige API key real (não placeholder)
+
+    # Por RGPD/NIS2, endpoint externo é recusado por defeito (LLM_ALLOW_EXTERNAL_ENDPOINTS=False)
+    with pytest.raises(ValidationError):
+        Settings(
+            llm_provider="openai_compatible",
+            llm_base_url="https://api.openai.com/v1",
+            llm_model="gpt-4o-mini",
+            llm_api_key="sk-test-key",
+        )
+
+    # Remoto apenas permitido com opt-in explícito e API key válida (não placeholder)
     assert (
         OpenAICompatibleLLMClient(
             Settings(
@@ -45,22 +57,29 @@ def test_llm_client_readiness_rules() -> None:
                 llm_base_url="https://api.openai.com/v1",
                 llm_model="gpt-4o-mini",
                 llm_api_key="CHANGE_ME",
+                llm_allow_external_endpoints=True,
             )
         ).is_ready
         is False
     )
-    # Ollama local funciona sem API key
-    assert (
-        OpenAICompatibleLLMClient(
-            Settings(
-                llm_provider="openai_compatible",
-                llm_base_url="http://localhost:11434/v1",
-                llm_model="llama3.1",
-                llm_api_key="",
-            )
-        ).is_ready
-        is True
-    )
+
+    # Ollama local e rede privada LAN (RFC-1918) funcionam sem opt-in externo nem API key
+    for local_url in (
+        "http://localhost:11434/v1",
+        "http://ollama:11434/v1",
+        "http://192.168.1.50:11434/v1",
+    ):
+        assert (
+            OpenAICompatibleLLMClient(
+                Settings(
+                    llm_provider="openai_compatible",
+                    llm_base_url=local_url,
+                    llm_model="qwen2.5:7b-instruct",
+                    llm_api_key="",
+                )
+            ).is_ready
+            is True
+        )
 
 
 def test_llm_tool_calling_executes_analytics_minimizes_payload_and_generates_reports(
@@ -130,9 +149,8 @@ def test_llm_tool_calling_executes_analytics_minimizes_payload_and_generates_rep
     llm_client = OpenAICompatibleLLMClient(
         settings=Settings(
             llm_provider="openai_compatible",
-            llm_base_url="https://api.openai.com/v1",
-            llm_model="gpt-4o-mini",
-            llm_api_key="sk-test-valid-key",
+            llm_base_url="http://localhost:11434/v1",
+            llm_model="qwen2.5:7b-instruct",
         ),
         http_client=httpx.Client(transport=httpx.MockTransport(handler)),
     )

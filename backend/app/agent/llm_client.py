@@ -1,11 +1,10 @@
 import json
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 
-from app.core.config import Settings, get_settings
+from app.core.config import Settings, get_settings, is_private_or_local_url
 
 
 class LLMClientError(RuntimeError):
@@ -26,15 +25,10 @@ class LLMResponse:
     finish_reason: str | None = None
 
 
-def _is_local_url(url: str) -> bool:
-    host = (urlparse(url).hostname or "").lower()
-    return host in {"localhost", "127.0.0.1", "::1", "ollama", "host.docker.internal"}
-
-
 class OpenAICompatibleLLMClient:
     """
-    Cliente agnóstico para qualquer API compatível com OpenAI Chat Completions + Tool Calling
-    (OpenAI, Ollama local, vLLM, OpenRouter, Gemini OpenAI-compat, Azure).
+    Cliente agnóstico para qualquer API compatível com OpenAI Chat Completions + Tool Calling,
+    orientado prioritariamente a LLMs locais/on-premise (Ollama, vLLM) por conformidade RGPD/NIS2.
     """
 
     def __init__(
@@ -51,8 +45,11 @@ class OpenAICompatibleLLMClient:
             return False
         if not self.settings.llm_model.strip():
             return False
+        is_local = is_private_or_local_url(self.settings.llm_base_url)
+        if not is_local and not self.settings.llm_allow_external_endpoints:
+            return False
         key = self.settings.llm_api_key.strip()
-        if not _is_local_url(self.settings.llm_base_url):
+        if not is_local:
             return bool(key) and "CHANGE_ME" not in key.upper()
         return True
 

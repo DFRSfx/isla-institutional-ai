@@ -5,6 +5,7 @@ import type {
   ExcelImportRecord,
   ExcelPreviewResponse,
   MessageItem,
+  PendingAuthorMatch,
   SourceSnapshot,
   TokenResponse,
   UserProfile,
@@ -144,5 +145,46 @@ export const api = {
 
   listAuditLogs(): Promise<AuditLogItem[]> {
     return request<AuditLogItem[]>("/api/v1/audit/logs?limit=100");
+  },
+
+  listUsers(): Promise<UserProfile[]> {
+    return request<UserProfile[]>("/api/v1/users");
+  },
+
+  createUser(payload: {
+    email: string;
+    full_name: string;
+    password: string;
+    role: string;
+  }): Promise<UserProfile> {
+    return request<UserProfile>("/api/v1/users", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateUser(
+    userId: string,
+    payload: { role?: string; is_active?: boolean }
+  ): Promise<UserProfile> {
+    return request<UserProfile>(`/api/v1/users/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  listPendingAuthorMatches(): Promise<PendingAuthorMatch[]> {
+    return request<PendingAuthorMatch[]>("/api/v1/review/author-matches");
+  },
+
+  decideAuthorMatch(
+    authorshipId: string,
+    action: "approve" | "reject",
+    researcherId?: string | null
+  ): Promise<Record<string, unknown>> {
+    return request<Record<string, unknown>>(`/api/v1/review/author-matches/${authorshipId}`, {
+      method: "POST",
+      body: JSON.stringify({ action, researcher_id: researcherId ?? null }),
+    });
   },
 };

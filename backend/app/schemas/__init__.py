@@ -210,3 +210,45 @@ class AuditLogResponse(BaseModel):
     details: dict[str, Any]
     ip_address: str | None = None
     created_at: datetime
+
+
+class UserCreateRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    full_name: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=8, max_length=255)
+    role: str = Field(default="faculty")
+    researcher_id: UUID | None = None
+
+
+class UserUpdateRequest(BaseModel):
+    full_name: str | None = Field(default=None, min_length=1, max_length=255)
+    role: str | None = None
+    is_active: bool | None = None
+    researcher_id: UUID | None = None
+
+
+class PendingAuthorMatchCandidate(BaseModel):
+    id: UUID
+    name: str
+    ciencia_vitae_id: str | None
+    email: str | None
+    school_code: str | None
+
+
+class PendingAuthorMatchResponse(BaseModel):
+    authorship_id: UUID
+    publication_id: UUID
+    publication_title: str
+    publication_year: int | None
+    raw_name: str | None
+    raw_ciencia_vitae_id: str | None
+    raw_email: str | None
+    match_method: str
+    match_confidence: str
+    current_researcher_id: UUID | None
+    candidates: list[PendingAuthorMatchCandidate] = Field(default_factory=list)
+
+
+class AuthorMatchDecisionRequest(BaseModel):
+    action: str = Field(pattern="^(approve|reject)$")
+    researcher_id: UUID | None = None

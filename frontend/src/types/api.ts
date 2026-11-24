@@ -186,3 +186,25 @@ export interface AuditLogItem {
   ip_address: string | null;
   created_at: string;
 }
+
+export interface PendingAuthorMatchCandidate {
+  id: string;
+  name: string;
+  ciencia_vitae_id: string | null;
+  email: string | null;
+  school_code: string | null;
+}
+
+export interface PendingAuthorMatch {
+  authorship_id: string;
+  publication_id: string;
+  publication_title: string;
+  publication_year: number | null;
+  raw_name: string | null;
+  raw_ciencia_vitae_id: string | null;
+  raw_email: string | null;
+  match_method: string;
+  match_confidence: string;
+  current_researcher_id: string | null;
+  candidates: PendingAuthorMatchCandidate[];
+}

@@ -13,6 +13,7 @@ import type {
   AuditLogItem,
   ExcelImportRecord,
   ExcelPreviewResponse,
+  PendingAuthorMatch,
   SourceSnapshot,
   UserProfile,
 } from "@/types/api";
@@ -27,6 +28,13 @@ export function AdminPage({ user, mode }: AdminPageProps) {
   const [snapshots, setSnapshots] = useState<SourceSnapshot[]>([]);
   const [imports, setImports] = useState<ExcelImportRecord[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [usersList, setUsersList] = useState<UserProfile[]>([]);
+  const [pendingMatches, setPendingMatches] = useState<PendingAuthorMatch[]>([]);
+  const [selectedCandidates, setSelectedCandidates] = useState<Record<string, string>>({});
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [newUserRole, setNewUserRole] = useState("faculty");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ExcelPreviewResponse | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -39,7 +47,14 @@ export function AdminPage({ user, mode }: AdminPageProps) {
       } else {
         setSnapshots(await api.listSnapshots());
         if (isAdmin) {
-          setImports(await api.listExcelImports());
+          const [imp, usrs, pending] = await Promise.all([
+            api.listExcelImports(),
+            api.listUsers(),
+            api.listPendingAuthorMatches(),
+          ]);
+          setImports(imp);
+          setUsersList(usrs);
+          setPendingMatches(pending);
         }
       }
     } catch (err) {
@@ -108,6 +123,77 @@ export function AdminPage({ user, mode }: AdminPageProps) {
       setFeedback({
         type: "err",
         text: err instanceof ApiError ? err.message : "Erro ao importar Excel.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy("create-user");
+    setFeedback(null);
+    try {
+      await api.createUser({
+        email: newUserEmail.trim(),
+        full_name: newUserName.trim(),
+        password: newUserPassword,
+        role: newUserRole,
+      });
+      setNewUserEmail("");
+      setNewUserName("");
+      setNewUserPassword("");
+      setFeedback({ type: "ok", text: "Utilizador criado com sucesso." });
+      await refreshData();
+    } catch (err) {
+      setFeedback({
+        type: "err",
+        text: err instanceof ApiError ? err.message : "Erro ao criar utilizador.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleToggleUserActive = async (target: UserProfile) => {
+    setBusy(`user-${target.id}`);
+    setFeedback(null);
+    try {
+      await api.updateUser(target.id, { is_active: !target.is_active });
+      await refreshData();
+    } catch (err) {
+      setFeedback({
+        type: "err",
+        text: err instanceof ApiError ? err.message : "Erro ao atualizar utilizador.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleAuthorDecision = async (
+    item: PendingAuthorMatch,
+    action: "approve" | "reject"
+  ) => {
+    const candidateId =
+      selectedCandidates[item.authorship_id] || item.candidates[0]?.id || null;
+    if (action === "approve" && !candidateId) return;
+    setBusy(`match-${item.authorship_id}`);
+    setFeedback(null);
+    try {
+      await api.decideAuthorMatch(item.authorship_id, action, candidateId);
+      setFeedback({
+        type: "ok",
+        text:
+          action === "approve"
+            ? "Correspondência validada manualmente."
+            : "Hipótese rejeitada e marcada sem correspondência.",
+      });
+      await refreshData();
+    } catch (err) {
+      setFeedback({
+        type: "err",
+        text: err instanceof ApiError ? err.message : "Erro ao registar decisão.",
       });
     } finally {
       setBusy(null);
@@ -379,6 +465,158 @@ export function AdminPage({ user, mode }: AdminPageProps) {
           </table>
         </div>
       </div>
+
+      {isAdmin && (
+        <>
+          {/* Revisão de Correspondências Pendentes */}
+          <div className="rounded-2xl bg-neutral-900/60 border border-neutral-800 overflow-hidden">
+            <div className="px-4 py-3 border-b border-neutral-800 flex items-center justify-between">
+              <h3 className="text-xs font-mono uppercase tracking-wider text-neutral-400">
+                Revisão de Correspondências Pendentes ({pendingMatches.length})
+              </h3>
+            </div>
+            <div className="divide-y divide-neutral-800/80">
+              {pendingMatches.map((item) => (
+                <div
+                  key={item.authorship_id}
+                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                >
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="text-neutral-200 font-medium truncate">
+                      {item.raw_name ?? item.raw_ciencia_vitae_id ?? "Autor"} ·{" "}
+                      <span className="font-mono text-amber-400">{item.match_method}</span>
+                    </div>
+                    <div className="text-neutral-400 truncate">
+                      {item.publication_title} ({item.publication_year ?? "s/ ano"})
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {item.candidates.length > 0 && (
+                      <select
+                        value={selectedCandidates[item.authorship_id] ?? item.candidates[0].id}
+                        onChange={(e) =>
+                          setSelectedCandidates((prev) => ({
+                            ...prev,
+                            [item.authorship_id]: e.target.value,
+                          }))
+                        }
+                        className="rounded-lg bg-neutral-950 border border-neutral-700 px-2.5 py-1.5 text-xs text-neutral-200"
+                      >
+                        {item.candidates.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} ({c.ciencia_vitae_id ?? c.email ?? "s/ ID"})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      disabled={item.candidates.length === 0 || busy !== null}
+                      onClick={() => void handleAuthorDecision(item, "approve")}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-medium disabled:opacity-40"
+                    >
+                      Aprovar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() => void handleAuthorDecision(item, "reject")}
+                      className="px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 disabled:opacity-40"
+                    >
+                      Rejeitar
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {pendingMatches.length === 0 && (
+                <div className="px-4 py-6 text-center text-xs text-neutral-500">
+                  Sem hipóteses de correspondência pendentes de revisão.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Gestão de Utilizadores */}
+          <div className="rounded-2xl bg-neutral-900/60 border border-neutral-800 p-5 space-y-4">
+            <h3 className="text-xs font-mono uppercase tracking-wider text-neutral-400">
+              Gestão de Utilizadores ({usersList.length})
+            </h3>
+            <form
+              onSubmit={(e) => void handleCreateUser(e)}
+              className="grid grid-cols-1 sm:grid-cols-5 gap-2"
+            >
+              <input
+                type="text"
+                required
+                placeholder="Nome completo"
+                value={newUserName}
+                onChange={(e) => setNewUserName(e.target.value)}
+                className="rounded-lg bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-white"
+              />
+              <input
+                type="email"
+                required
+                placeholder="email@islagaia.pt"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                className="rounded-lg bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-white"
+              />
+              <input
+                type="password"
+                required
+                minLength={8}
+                placeholder="Password (min. 8)"
+                value={newUserPassword}
+                onChange={(e) => setNewUserPassword(e.target.value)}
+                className="rounded-lg bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-white"
+              />
+              <select
+                value={newUserRole}
+                onChange={(e) => setNewUserRole(e.target.value)}
+                className="rounded-lg bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-200"
+              >
+                <option value="faculty">Docente</option>
+                <option value="direction">Direção</option>
+                <option value="admin">Administrador</option>
+              </select>
+              <button
+                type="submit"
+                disabled={busy !== null}
+                className="rounded-lg bg-white text-black text-xs font-medium px-3 py-2 hover:bg-neutral-200 disabled:opacity-50"
+              >
+                Criar utilizador
+              </button>
+            </form>
+
+            <div className="divide-y divide-neutral-800/80 border-t border-neutral-800 pt-2">
+              {usersList.map((u) => (
+                <div
+                  key={u.id}
+                  className="py-2.5 flex items-center justify-between gap-2 text-xs"
+                >
+                  <div className="min-w-0">
+                    <span className="text-neutral-200 font-medium">{u.full_name}</span>{" "}
+                    <span className="text-neutral-500 font-mono">({u.email})</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-mono text-[11px] text-emerald-400">{u.role}</span>
+                    {u.id !== user.id && (
+                      <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={() => void handleToggleUserActive(u)}
+                        className="px-2.5 py-1 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[11px]"
+                      >
+                        {u.is_active ? "Desativar" : "Ativar"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

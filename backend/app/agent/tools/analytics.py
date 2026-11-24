@@ -380,6 +380,11 @@ def get_scientific_production_report_data(
                 continue
             seen_in_pub.add(r.id)
 
+            # Regra P0 de segurança: perfil docente não pode receber ranking/indicadores
+            # individuais de outros docentes.
+            if not allow_internal_all and r.id != ctx.user.researcher_id:
+                continue
+
             is_self = ctx.user.researcher_id == r.id
             if r.id not in prod_by_researcher:
                 prod_by_researcher[r.id] = {

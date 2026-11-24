@@ -1,3 +1,6 @@
+import base64
+import re
+import zlib
 from io import BytesIO
 from pathlib import Path
 
@@ -215,3 +218,86 @@ def test_agent_enforces_rbac_when_faculty_queries_other_researcher_and_audit_log
         actions = {item["action"] for item in admin_logs.json()}
         assert "agent.tool.find_researcher.denied" in actions
         assert "agent.chat.turn" in actions
+
+
+def _extract_pdf_text_streams(pdf_bytes: bytes) -> str:
+    chunks: list[str] = [pdf_bytes.decode("latin-1", errors="ignore")]
+    for match in re.finditer(rb"stream\r?\n(.*?)endstream", pdf_bytes, flags=re.DOTALL):
+        raw_stream = match.group(1)
+        try:
+            compact = re.sub(rb"\s+", b"", raw_stream).removesuffix(b"~>")
+            decoded = base64.a85decode(compact)
+            chunks.append(zlib.decompress(decoded).decode("latin-1", errors="ignore"))
+            continue
+        except (ValueError, zlib.error):
+            pass
+        try:
+            chunks.append(zlib.decompress(raw_stream).decode("latin-1", errors="ignore"))
+        except zlib.error:
+            pass
+    return "\n".join(chunks)
+
+
+def test_faculty_cannot_see_other_researchers_in_ranking_pdf_or_excel(
+    db_session: Session, tmp_path: Path
+) -> None:
+    _seed_cross_source_data(db_session)
+    ana = db_session.scalar(select(Researcher).where(Researcher.email == "ana.silva@isla.test"))
+    assert ana is not None
+
+    faculty_user = make_user(
+        db_session,
+        email="ana.silva@islagaia.pt",
+        role=UserRole.FACULTY,
+        full_name="Ana Silva",
+        researcher_id=ana.id,
+    )
+
+    with _build_isolated_client(db_session, tmp_path) as client:
+        resp = client.post(
+            "/api/v1/chat",
+            json={
+                "message": (
+                    "Preciso de um relatório institucional do ISLA nos últimos cinco anos "
+                    "com os docentes mais produtivos em PDF e Excel."
+                )
+            },
+            headers=auth_headers(faculty_user),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+
+        # 1. Resposta do agente e ranking não podem expor outros docentes
+        assert "Bruno Costa" not in body["answer"]
+        assert "Diogo Ferreira" not in body["answer"]
+        top_names = [r["name"] for r in body["analytics_summary"]["top_researchers"]]
+        assert top_names == ["Ana Silva"]
+
+        # 2. PDF gerado não pode incluir outros docentes na tabela de produtividade
+        pdf_resp = client.get(
+            body["report_bundle"]["pdf_url"],
+            headers=auth_headers(faculty_user),
+        )
+        assert pdf_resp.status_code == 200
+        pdf_text = _extract_pdf_text_streams(pdf_resp.content)
+        assert "Ana Silva" in pdf_text
+        assert "Bruno Costa" not in pdf_text
+        assert "Diogo Ferreira" not in pdf_text
+
+        # 3. Folhas 'Docentes' e 'Dados Detalhados' do Excel não podem incluir outros docentes
+        xlsx_resp = client.get(
+            body["report_bundle"]["excel_url"],
+            headers=auth_headers(faculty_user),
+        )
+        assert xlsx_resp.status_code == 200
+        wb = openpyxl.load_workbook(BytesIO(xlsx_resp.content))
+        docentes_names = [
+            row[0] for row in wb["Docentes"].iter_rows(min_row=2, values_only=True) if row[0]
+        ]
+        detalhes_names = [
+            row[0]
+            for row in wb["Dados Detalhados"].iter_rows(min_row=2, values_only=True)
+            if row[0]
+        ]
+        assert docentes_names == ["Ana Silva"]
+        assert detalhes_names == ["Ana Silva"]

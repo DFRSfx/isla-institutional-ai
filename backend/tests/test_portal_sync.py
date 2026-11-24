@@ -179,3 +179,84 @@ def test_excel_import_after_portal_sync_relinks_authors(db_session: Session) -> 
     pub1_reloaded = db_session.scalar(select(Publication).where(Publication.portal_id == "PUB-001"))
     assert pub1_reloaded.authors[0].researcher_id is not None
     assert pub1_reloaded.authors[1].researcher_id is not None
+
+
+def test_portal_sync_anonymized_real_four_author_book_payload(db_session: Session) -> None:
+    """
+    Teste de regressão baseado na estrutura real de um registo Book com 4 autores,
+    escola vazia, ano editorial futuro (2027) e sem DOI/quartil/indexação.
+    Todos os identificadores, nomes e emails são estritamente sintéticos.
+    """
+    payload = [
+        {
+            "ID": "BOOK-2027-SYNTH-001",
+            "authors": "1111-AAAA-2222;3333-BBBB-4444;5555-CCCC-6666;7777-DDDD-8888",
+            "Ciência ID": "1111-AAAA-2222;#3333-BBBB-4444;#5555-CCCC-6666;#7777-DDDD-8888",
+            "Email": (
+                "autor1@isla.test;#autor2@isla.test;#autor3@isla.test;#autor4@isla.test"
+            ),
+            "Nome": "Primeiro Autor; Segundo Autor; Terceiro Autor; Quarto Autor",
+            "Autores": "Autor, P., Autor, S., Autor, T., & Autor, Q.",
+            "Afiliação": "ISLA Gaia",
+            "Escola": "",
+            "Ano": 2027,
+            "Tipo Publicação": "Book",
+            "Title": "Synthetic Institutional Book Title for Regression Testing",
+            "Jornal": "",
+            "Conferência": "",
+            "DOI": "",
+            "DOI/URL": "",
+            "Classificação Conferência": "",
+            "Classificação Jornal": "",
+            "Quartil": "",
+            "Estado": "Publicado",
+            "APA": "Autor, P., Autor, S., Autor, T., & Autor, Q. (2027). Synthetic Institutional Book Title.",
+            "Indexada Scopus": False,
+            "Indexada WoS": False,
+            "Indexado": "",
+            "Numero de Citações": 0,
+            "Referencias": 0,
+            "Open Access": False,
+            "OA Status": "",
+            "OA URL": "",
+            "Keywords": "",
+        }
+    ]
+
+    sync_service, _ = _make_mock_sync_service(payload, version="20")
+    snap = sync_service.sync_publications(db_session)
+    assert snap.records_created == 1
+
+    pub = db_session.scalar(
+        select(Publication).where(Publication.portal_id == "BOOK-2027-SYNTH-001")
+    )
+    assert pub is not None
+    assert pub.pub_type == "Book"
+    assert pub.year == 2027
+    assert pub.status == "Publicado"
+    assert pub.doi is None
+    assert pub.quartile is None
+    assert pub.is_indexed_scopus is False
+    assert pub.is_indexed_wos is False
+    assert pub.is_open_access is False
+    assert pub.affiliations_raw == ["ISLA Gaia"]
+    # Escola vazia não deve ser inferida como EST ou ESG a partir de 'ISLA Gaia'
+    assert pub.schools_raw == []
+
+    assert len(pub.authors) == 4
+    expected_authors = [
+        ("1111-AAAA-2222", "autor1@isla.test", "Primeiro Autor"),
+        ("3333-BBBB-4444", "autor2@isla.test", "Segundo Autor"),
+        ("5555-CCCC-6666", "autor3@isla.test", "Terceiro Autor"),
+        ("7777-DDDD-8888", "autor4@isla.test", "Quarto Autor"),
+    ]
+    for idx, (cv, email, name) in enumerate(expected_authors):
+        author = pub.authors[idx]
+        assert author.author_order == idx
+        assert author.raw_ciencia_vitae_id == cv
+        assert author.raw_email == email
+        assert author.raw_name == name
+        assert author.raw_affiliation == "ISLA Gaia"
+        assert author.raw_school is None
+        assert author.researcher_id is None
+        assert author.match_method == "unmatched"

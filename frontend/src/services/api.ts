@@ -1,0 +1,146 @@
+import type {
+  AuditLogItem,
+  ChatResponse,
+  ConversationItem,
+  ExcelImportRecord,
+  ExcelPreviewResponse,
+  MessageItem,
+  SourceSnapshot,
+  TokenResponse,
+  UserProfile,
+} from "@/types/api";
+
+const TOKEN_STORAGE_KEY = "isla_ai_access_token";
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+export function setStoredToken(token: string | null): void {
+  if (token) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = getStoredToken();
+  const headers = new Headers(init.headers);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (!(init.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const res = await fetch(path, { ...init, headers });
+  if (!res.ok) {
+    let detail = `Erro HTTP ${res.status}`;
+    try {
+      const payload = (await res.json()) as { detail?: string };
+      if (payload.detail) detail = payload.detail;
+    } catch {
+      // ignora payload não-JSON
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return (await res.json()) as T;
+}
+
+export const api = {
+  login(email: string, password: string): Promise<TokenResponse> {
+    return request<TokenResponse>("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  me(): Promise<UserProfile> {
+    return request<UserProfile>("/api/v1/auth/me");
+  },
+
+  sendChatMessage(message: string, conversationId?: string | null): Promise<ChatResponse> {
+    return request<ChatResponse>("/api/v1/chat", {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        conversation_id: conversationId ?? null,
+      }),
+    });
+  },
+
+  listConversations(): Promise<ConversationItem[]> {
+    return request<ConversationItem[]>("/api/v1/conversations");
+  },
+
+  listMessages(conversationId: string): Promise<MessageItem[]> {
+    return request<MessageItem[]>(`/api/v1/conversations/${conversationId}/messages`);
+  },
+
+  async downloadReport(url: string, fallbackFilename: string): Promise<void> {
+    const token = getStoredToken();
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      throw new ApiError(res.status, "Não foi possível descarregar o relatório.");
+    }
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = fallbackFilename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  },
+
+  syncPortal(nocache = false): Promise<SourceSnapshot> {
+    return request<SourceSnapshot>("/api/v1/sync/portal", {
+      method: "POST",
+      body: JSON.stringify({ nocache }),
+    });
+  },
+
+  listSnapshots(): Promise<SourceSnapshot[]> {
+    return request<SourceSnapshot[]>("/api/v1/sync/snapshots?limit=20");
+  },
+
+  previewExcel(file: File, sheetName?: string): Promise<ExcelPreviewResponse> {
+    const form = new FormData();
+    form.append("file", file);
+    const query = sheetName ? `?sheet_name=${encodeURIComponent(sheetName)}` : "";
+    return request<ExcelPreviewResponse>(`/api/v1/imports/excel/preview${query}`, {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  importExcel(file: File, sheetName?: string): Promise<ExcelImportRecord> {
+    const form = new FormData();
+    form.append("file", file);
+    const query = sheetName ? `?sheet_name=${encodeURIComponent(sheetName)}` : "";
+    return request<ExcelImportRecord>(`/api/v1/imports/excel${query}`, {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  listExcelImports(): Promise<ExcelImportRecord[]> {
+    return request<ExcelImportRecord[]>("/api/v1/imports/excel?limit=20");
+  },
+
+  listAuditLogs(): Promise<AuditLogItem[]> {
+    return request<AuditLogItem[]>("/api/v1/audit/logs?limit=100");
+  },
+};

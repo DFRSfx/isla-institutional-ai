@@ -1,5 +1,12 @@
 from app.services.audit import record_audit_log
 from app.services.excel_import import ExcelImportService, ExcelValidationError
+from app.services.institutional_auth import (
+    InstitutionalAuthClient,
+    InstitutionalAuthError,
+    InstitutionalAuthForbiddenRole,
+    InstitutionalAuthUnauthorized,
+    InstitutionalIdentity,
+)
 from app.services.portal_api import (
     PortalApiClient,
     PortalApiError,
@@ -11,6 +18,11 @@ from app.services.portal_api import (
 __all__ = [
     "ExcelImportService",
     "ExcelValidationError",
+    "InstitutionalAuthClient",
+    "InstitutionalAuthError",
+    "InstitutionalAuthForbiddenRole",
+    "InstitutionalAuthUnauthorized",
+    "InstitutionalIdentity",
     "PortalApiClient",
     "PortalApiError",
     "PortalFetchResult",

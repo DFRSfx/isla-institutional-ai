@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight, Lock, Mail, ShieldCheck } from "lucide-react";
+import { ArrowRight, Lock, ShieldCheck, User } from "lucide-react";
 
 import { ApiError, api, setStoredToken } from "@/services/api";
 import type { UserProfile } from "@/types/api";
@@ -9,7 +9,7 @@ interface LoginPageProps {
 }
 
 export function LoginPage({ onAuthenticated }: LoginPageProps) {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,7 +19,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
     setError(null);
     setLoading(true);
     try {
-      const res = await api.login(email.trim(), password);
+      const res = await api.login(username.trim(), password);
       setStoredToken(res.access_token);
       onAuthenticated(res.user);
     } catch (err) {
@@ -45,8 +45,8 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
             Acesso Institucional
           </h1>
           <p className="text-sm text-neutral-400">
-            Autentica-te para consultar produção científica, gerar relatórios PDF/Excel e aceder às
-            ferramentas autorizadas para o teu perfil.
+            Autentica-te com a tua conta ISLA (LDAP) ou email institucional para consultar produção
+            científica e gerar relatórios PDF/Excel.
           </p>
         </div>
 
@@ -61,19 +61,19 @@ export function LoginPage({ onAuthenticated }: LoginPageProps) {
           )}
 
           <div className="space-y-1.5">
-            <label htmlFor="email" className="text-xs font-medium text-neutral-300">
-              Email institucional
+            <label htmlFor="username" className="text-xs font-medium text-neutral-300">
+              Utilizador ISLA ou Email
             </label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <User className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
-                id="email"
-                type="email"
+                id="username"
+                type="text"
                 required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="nome@islagaia.pt"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="ex.: jdoe ou nome@islagaia.pt"
                 className="w-full rounded-lg bg-neutral-950 border border-neutral-800 pl-9 pr-3 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-neutral-600 transition-colors"
               />
             </div>

@@ -2,12 +2,21 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    username: str | None = Field(default=None, min_length=1, max_length=255)
+    email: str | None = Field(default=None, min_length=1, max_length=255)
     password: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_identifier(self) -> "LoginRequest":
+        ident = (self.username or self.email or "").strip()
+        if not ident:
+            raise ValueError("Indique 'username' ou 'email'.")
+        self.username = ident
+        return self
 
 
 class UserProfileResponse(BaseModel):

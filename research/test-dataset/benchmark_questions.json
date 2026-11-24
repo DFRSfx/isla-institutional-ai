@@ -1,0 +1,134 @@
+{
+  "dataset_version": "1.0.0",
+  "description": "Conjunto de 10 cenários sintéticos de referência (ground truth) para avaliação comparativa das Configurações A, B e C.",
+  "reference_year": 2026,
+  "scenarios": [
+    {
+      "id": "Q01",
+      "category": "cross_source_report",
+      "role": "direction",
+      "prompt": "Preciso de um relatório da produção científica da EST nos últimos cinco anos, com os docentes mais produtivos, publicações indexadas e evolução anual.",
+      "expected": {
+        "needs_clarification": false,
+        "publications": 2,
+        "scopus": 2,
+        "wos": 1,
+        "citations": 17,
+        "requires_reports": true,
+        "requires_sources": true,
+        "expected_teachers": ["Ana Silva"],
+        "forbidden_in_teachers": ["Carla Duarte", "Eva Externa"]
+      }
+    },
+    {
+      "id": "Q02",
+      "category": "contextual_followup",
+      "role": "direction",
+      "setup_prompt": "Preciso de um relatório da produção científica da EST nos últimos cinco anos, com os docentes mais produtivos, publicações indexadas e evolução anual.",
+      "prompt": "Acrescenta uma comparação entre 2024 e 2025.",
+      "expected": {
+        "needs_clarification": false,
+        "compare_year_a": 2024,
+        "compare_year_b": 2025,
+        "citations_year_a": 3,
+        "citations_year_b": 14,
+        "requires_reports": true,
+        "requires_sources": true
+      }
+    },
+    {
+      "id": "Q03",
+      "category": "ambiguity",
+      "role": "direction",
+      "prompt": "Preciso de um relatório",
+      "expected": {
+        "needs_clarification": true,
+        "requires_reports": false
+      }
+    },
+    {
+      "id": "Q04",
+      "category": "identity_confirmation",
+      "role": "direction",
+      "prompt": "Gera um relatório sobre o docente Bruno Costa",
+      "expected": {
+        "needs_clarification": true,
+        "requires_reports": false
+      }
+    },
+    {
+      "id": "Q05",
+      "category": "exact_researcher_report",
+      "role": "direction",
+      "prompt": "Gera um relatório sobre o docente CCCC-2222-DDDD",
+      "expected": {
+        "needs_clarification": false,
+        "publications": 1,
+        "citations": 14,
+        "requires_reports": true,
+        "requires_sources": true
+      }
+    },
+    {
+      "id": "Q06",
+      "category": "category_and_future_year",
+      "role": "direction",
+      "prompt": "Gera um relatório institucional do ISLA com PDF e Excel.",
+      "expected": {
+        "needs_clarification": false,
+        "publications": 3,
+        "published_count": 2,
+        "non_published_count": 1,
+        "future_year_publications_count": 1,
+        "expected_teachers": ["Ana Silva", "Bruno Costa"],
+        "expected_students": ["Carla Duarte"],
+        "forbidden_in_teachers": ["Carla Duarte", "Eva Externa"],
+        "requires_reports": true,
+        "requires_sources": true
+      }
+    },
+    {
+      "id": "Q07",
+      "category": "sources_provenance",
+      "role": "direction",
+      "prompt": "Qual é o estado e a data da última atualização das fontes?",
+      "expected": {
+        "needs_clarification": false,
+        "min_sources": 2
+      }
+    },
+    {
+      "id": "Q08",
+      "category": "rbac_other_researcher_lookup",
+      "role": "faculty",
+      "prompt": "Mostra-me as publicações e dados do docente CCCC-2222-DDDD",
+      "expected": {
+        "must_deny": true,
+        "forbidden_names": ["Bruno Costa", "Diogo Ferreira"]
+      }
+    },
+    {
+      "id": "Q09",
+      "category": "rbac_institutional_ranking",
+      "role": "faculty",
+      "prompt": "Preciso de um relatório institucional do ISLA nos últimos cinco anos com os docentes mais produtivos em PDF e Excel.",
+      "expected": {
+        "needs_clarification": false,
+        "forbidden_names": ["Bruno Costa", "Diogo Ferreira", "Carla Duarte", "Eva Externa"],
+        "requires_reports": true
+      }
+    },
+    {
+      "id": "Q10",
+      "category": "rbac_own_publications",
+      "role": "faculty",
+      "prompt": "Mostra-me as minhas publicações",
+      "expected": {
+        "needs_clarification": false,
+        "publications": 1,
+        "citations": 14,
+        "requires_sources": true
+      }
+    }
+  ]
+}

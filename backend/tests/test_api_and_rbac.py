@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.routes.auth import reset_login_rate_limiter
 from app.core.config import Settings
 from app.core.permissions import UserRole
 from app.models.audit import AuditLog
@@ -221,3 +222,28 @@ def test_retention_cleanup_deletes_expired_conversations_and_reports(
     assert (tmp_path / "new-rep.pdf").exists()
     remaining_convs = db_session.scalars(select(Conversation)).all()
     assert [c.title for c in remaining_convs] == ["Recente"]
+
+
+def test_login_rate_limiting_blocks_after_five_failures(
+    client: TestClient, db_session: Session
+) -> None:
+    reset_login_rate_limiter()
+    make_user(
+        db_session,
+        email="throttle@islagaia.pt",
+        role=UserRole.FACULTY,
+        password="CorrectPassword123!",
+    )
+    for _ in range(5):
+        resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "throttle@islagaia.pt", "password": "wrong"},
+        )
+        assert resp.status_code == 401
+
+    blocked = client.post(
+        "/api/v1/auth/login",
+        json={"username": "throttle@islagaia.pt", "password": "CorrectPassword123!"},
+    )
+    assert blocked.status_code == 429
+    reset_login_rate_limiter()

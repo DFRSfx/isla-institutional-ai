@@ -35,6 +35,8 @@ export interface ReportBundle {
   excel_url: string;
   pdf_size_bytes: number;
   excel_size_bytes: number;
+  created_at?: string;
+  scope?: Record<string, unknown>;
 }
 
 export interface AnnualPoint {

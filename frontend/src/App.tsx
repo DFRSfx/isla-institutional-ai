@@ -5,6 +5,7 @@ import { type ActiveSection, Sidebar } from "@/components/Sidebar";
 import { AdminPage } from "@/pages/AdminPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { ReportsPage } from "@/pages/ReportsPage";
 import { ApiError, api } from "@/services/api";
 import type { ConversationItem, MessageItem, UserProfile } from "@/types/api";
 
@@ -164,6 +165,8 @@ export function App() {
             onOpenExcelImport={() => setActiveSection("admin")}
           />
         )}
+
+        {activeSection === "reports" && <ReportsPage />}
 
         {(activeSection === "admin" || activeSection === "audit") && (
           <AdminPage user={user} mode={activeSection} />

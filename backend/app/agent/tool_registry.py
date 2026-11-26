@@ -132,9 +132,16 @@ def execute_registered_tool(
     if name == "find_researcher":
         query = str(arguments.get("query") or "")
         res = find_researcher(ctx, query)
+        # Regra P0 de integridade: ocultar o UUID em hipóteses apenas por nome para
+        # impedir fisicamente que um LLM pequeno avance para relatório sem validação.
+        sanitized_hypotheses = [
+            {k: v for k, v in h.items() if k != "id"}
+            for h in res["hypotheses"]
+        ]
+        llm_res = {**res, "hypotheses": sanitized_hypotheses}
         return ToolExecutionOutput(
             tool_name=name,
-            llm_payload=res,
+            llm_payload=llm_res,
             sources=res["sources"],
             audit_meta={
                 "tool": name,

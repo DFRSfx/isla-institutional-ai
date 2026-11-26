@@ -1,10 +1,19 @@
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
 from app.core.config import Settings, get_settings, is_private_or_local_url
+
+THINK_BLOCK_REGEX = re.compile(r"<think>.*?</think>\s*", flags=re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning_tags(text: str | None) -> str | None:
+    if text is None:
+        return None
+    return THINK_BLOCK_REGEX.sub("", text).strip()
 
 
 class LLMClientError(RuntimeError):
@@ -115,7 +124,7 @@ class OpenAICompatibleLLMClient:
             )
 
         return LLMResponse(
-            content=msg.get("content"),
+            content=strip_reasoning_tags(msg.get("content")),
             tool_calls=parsed_calls,
             finish_reason=choice.get("finish_reason"),
         )

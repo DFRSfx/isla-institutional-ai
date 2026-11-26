@@ -21,6 +21,46 @@ def get_reports_dir() -> Path:
     return Path(get_settings().reports_output_dir)
 
 
+@router.get("")
+def list_reports(
+    user: User = Depends(get_current_user),
+    reports_dir: Path = Depends(get_reports_dir),
+) -> list[dict[str, object]]:
+    if not reports_dir.exists():
+        return []
+
+    is_admin = user.role == UserRole.ADMIN.value
+    items: list[dict[str, object]] = []
+    for meta_path in reports_dir.glob("*.meta.json"):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not is_admin and meta.get("owner_id") != str(user.id):
+            continue
+        rid = meta.get("report_id")
+        if not rid:
+            continue
+        pdf_path = reports_dir / f"{rid}.pdf"
+        xlsx_path = reports_dir / f"{rid}.xlsx"
+        items.append(
+            {
+                "report_id": rid,
+                "title": meta.get("title") or "Relatório ISLA",
+                "reproducibility_id": meta.get("reproducibility_id") or "",
+                "scope": meta.get("scope") or {},
+                "created_at": meta.get("created_at") or "",
+                "pdf_url": f"/api/v1/reports/{rid}/pdf",
+                "excel_url": f"/api/v1/reports/{rid}/excel",
+                "pdf_size_bytes": pdf_path.stat().st_size if pdf_path.exists() else 0,
+                "excel_size_bytes": xlsx_path.stat().st_size if xlsx_path.exists() else 0,
+            }
+        )
+
+    items.sort(key=lambda x: str(x["created_at"]), reverse=True)
+    return items[:100]
+
+
 @router.get("/{report_id}/{fmt}")
 def download_report(
     report_id: UUID,

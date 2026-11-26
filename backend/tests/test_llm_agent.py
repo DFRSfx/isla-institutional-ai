@@ -8,13 +8,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agent.graph import AgentOrchestrator
-from app.agent.llm_client import OpenAICompatibleLLMClient
+from app.agent.llm_client import OpenAICompatibleLLMClient, strip_reasoning_tags
+from app.agent.tool_registry import execute_registered_tool
+from app.agent.tools import ToolContext
 from app.core.config import Settings
 from app.core.permissions import UserRole
 from app.models.audit import AuditLog
 from app.models.researcher import Researcher
 from app.services.excel_import import ExcelImportService
 from app.services.portal_api import PortalFetchResult, PortalSyncService
+from app.services.report_generator import ReportGeneratorService
 from tests.conftest import build_synthetic_researchers_xlsx, make_user
 from tests.test_portal_sync import SAMPLE_PORTAL_PAYLOAD_V1
 
@@ -283,3 +286,23 @@ def test_llm_tool_calling_enforces_rbac_and_falls_back_on_provider_error(
         select(AuditLog).where(AuditLog.action == "agent.llm.fallback")
     ).all()
     assert len(fallback_logs) == 1
+
+
+def test_strip_qwen3_think_tags_and_hide_uuid_on_name_hypotheses(db_session: Session) -> None:
+    # 1. Tags <think>...</think> emitidas pelo Qwen3 devem ser removidas antes de mostrar ao utilizador
+    raw = "<think>\nVou analisar os indicadores da EST...\n</think>\nA EST tem 2 publicações."
+    assert strip_reasoning_tags(raw) == "A EST tem 2 publicações."
+
+    # 2. Hipóteses por nome em find_researcher não podem expor 'id' ao LLM
+    _seed_data(db_session)
+    direction = make_user(db_session, email="direcao@islagaia.pt", role=UserRole.DIRECTION)
+    out = execute_registered_tool(
+        name="find_researcher",
+        arguments={"query": "Bruno Costa"},
+        ctx=ToolContext(db=db_session, user=direction),
+        report_generator=ReportGeneratorService(),
+    )
+    assert out.llm_payload["matches"] == []
+    assert len(out.llm_payload["hypotheses"]) == 1
+    assert "id" not in out.llm_payload["hypotheses"][0]
+    assert out.llm_payload["hypotheses"][0]["requires_confirmation"] is True

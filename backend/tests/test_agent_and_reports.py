@@ -159,6 +159,12 @@ def test_agent_est_report_followup_comparison_and_pdf_excel_downloads(
         )
         assert denied_dl.status_code == 403
 
+        # 5b. Listagem GET /api/v1/reports respeita RBAC (direção vê os seus 2; outro docente vê 0)
+        dir_reports = client.get("/api/v1/reports", headers=auth_headers(direction)).json()
+        assert len(dir_reports) == 2
+        other_reports = client.get("/api/v1/reports", headers=auth_headers(other_faculty)).json()
+        assert other_reports == []
+
         # 6. Histórico de conversações e mensagens persistido
         convs = client.get("/api/v1/conversations", headers=auth_headers(direction)).json()
         assert len(convs) == 1

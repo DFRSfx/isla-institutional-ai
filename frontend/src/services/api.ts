@@ -6,6 +6,7 @@ import type {
   ExcelPreviewResponse,
   MessageItem,
   PendingAuthorMatch,
+  ReportBundle,
   SourceSnapshot,
   TokenResponse,
   UserProfile,
@@ -74,6 +75,10 @@ export const api = {
 
   listMessages(conversationId: string): Promise<MessageItem[]> {
     return request<MessageItem[]>(`/api/v1/conversations/${conversationId}/messages`);
+  },
+
+  listReports(): Promise<ReportBundle[]> {
+    return request<ReportBundle[]>("/api/v1/reports");
   },
 
   async downloadReport(url: string, fallbackFilename: string): Promise<void> {

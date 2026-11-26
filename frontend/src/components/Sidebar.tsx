@@ -1,5 +1,6 @@
 import {
   Database,
+  FileText,
   LogOut,
   MessageSquare,
   Plus,
@@ -11,7 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { ConversationItem, UserProfile } from "@/types/api";
 
-export type ActiveSection = "chat" | "admin" | "audit";
+export type ActiveSection = "chat" | "reports" | "admin" | "audit";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
@@ -98,6 +99,23 @@ export function Sidebar({
           >
             <MessageSquare className="w-3.5 h-3.5" />
             Assistente IA
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onSelectSection("reports");
+              onCloseMobile();
+            }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors",
+              activeSection === "reports"
+                ? "bg-neutral-800/90 text-white"
+                : "text-neutral-400 hover:text-white hover:bg-neutral-900"
+            )}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Relatórios
           </button>
 
           {canAccessAdmin && (

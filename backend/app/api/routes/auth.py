@@ -1,4 +1,6 @@
 import secrets
+import time
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -28,6 +30,26 @@ ROLE_PRECEDENCE: dict[str, int] = {
     UserRole.DIRECTION.value: 2,
     UserRole.ADMIN.value: 3,
 }
+
+LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 5
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = 300
+_failed_login_attempts: dict[str, list[float]] = defaultdict(list)
+
+
+def reset_login_rate_limiter() -> None:
+    _failed_login_attempts.clear()
+
+
+def _is_login_rate_limited(key: str) -> bool:
+    now = time.monotonic()
+    cutoff = now - LOGIN_RATE_LIMIT_WINDOW_SECONDS
+    recent = [ts for ts in _failed_login_attempts.get(key, []) if ts > cutoff]
+    _failed_login_attempts[key] = recent
+    return len(recent) >= LOGIN_RATE_LIMIT_MAX_ATTEMPTS
+
+
+def _record_failed_login(key: str) -> None:
+    _failed_login_attempts[key].append(time.monotonic())
 
 
 def get_institutional_auth_client() -> InstitutionalAuthClient:
@@ -87,6 +109,22 @@ def login(
     settings = get_settings()
     identifier = (payload.username or "").strip()
     ip = request.client.host if request.client else None
+    throttle_key = f"{identifier.lower()}|{ip or 'unknown'}"
+
+    if _is_login_rate_limited(throttle_key):
+        record_audit_log(
+            db,
+            action="auth.login.rate_limited",
+            resource_type="user",
+            resource_id=identifier.lower(),
+            status="denied",
+            ip_address=ip,
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiadas tentativas de autenticação falhadas. Tente novamente dentro de alguns minutos.",
+        )
 
     user: User | None = None
     auth_provider = "local"
@@ -176,6 +214,7 @@ def login(
             or not local_user.is_active
             or not verify_password(payload.password, local_user.password_hash)
         ):
+            _record_failed_login(throttle_key)
             record_audit_log(
                 db,
                 action="auth.login",

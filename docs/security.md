@@ -60,4 +60,4 @@ Por requisitos de proteção de dados (**RGPD**) e cibersegurança institucional
 
 - **Bloqueio técnico por defeito (`LLM_ALLOW_EXTERNAL_ENDPOINTS=false`)**: `Settings` valida `LLM_BASE_URL` no arranque e recusa qualquer endereço externo/público, aceitando apenas `localhost`, serviços internos Docker (`ollama`, `vllm`) ou endereços privados LAN (RFC-1918).
 - **Minimização de dados ao LLM**: mesmo com LLM local, o `tool_registry.py` envia apenas métricas agregadas e metadados autorizados para o perfil do utilizador autenticado (nunca dumps brutos da base de dados nem credenciais).
-- **Modelos locais recomendados com suporte a *tool calling* e português**: `qwen2.5:7b-instruct`, `qwen2.5:14b-instruct` ou `llama3.1:8b` via `docker compose --profile local-llm up -d`.
+- **Modelos locais recomendados (6–8 GB VRAM, suporte a *tool calling* e português)**: `qwen3:8b` (Q4, ~5 GB) ou `qwen3:4b-instruct` (~2.6 GB) via `docker compose --profile local-llm up -d`.

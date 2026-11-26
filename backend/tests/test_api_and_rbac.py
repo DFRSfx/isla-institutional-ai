@@ -141,19 +141,21 @@ def test_production_config_rejects_weak_jwt_secret_and_debug() -> None:
     strong_secret = secrets.token_hex(32)
 
     with pytest.raises(ValidationError):
-        Settings(app_env="production")
+        Settings(_env_file=None, app_env="production")
 
     with pytest.raises(ValidationError):
-        Settings(app_env="production", jwt_secret_key="too-short")
+        Settings(_env_file=None, app_env="production", jwt_secret_key="too-short")
 
     # Segredo longo mas de baixa entropia deve ser recusado
     with pytest.raises(ValidationError):
-        Settings(app_env="production", jwt_secret_key="x" * 40, debug=False)
+        Settings(_env_file=None, app_env="production", jwt_secret_key="x" * 40, debug=False)
 
     with pytest.raises(ValidationError):
-        Settings(app_env="production", jwt_secret_key=strong_secret, debug=True)
+        Settings(_env_file=None, app_env="production", jwt_secret_key=strong_secret, debug=True)
 
-    valid = Settings(app_env="production", jwt_secret_key=strong_secret, debug=False)
+    valid = Settings(
+        _env_file=None, app_env="production", jwt_secret_key=strong_secret, debug=False
+    )
     assert valid.app_env == "production"
 
 

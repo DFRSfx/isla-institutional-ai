@@ -76,7 +76,7 @@ class OpenAICompatibleLLMClient:
             "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
-            "temperature": 0.1,
+            "temperature": 0.0,
         }
 
         try:

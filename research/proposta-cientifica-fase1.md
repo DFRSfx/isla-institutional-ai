@@ -67,7 +67,7 @@ O protocolo detalhado encontra-se em [experimental-protocol.md](methodology/expe
 | **B** *(só Portal API)* | 4/10 | 71.4% | 40.0% | 66.7% | 0.0% | 50.0% | 80.0% | 0.0% | 0 |
 | **C** *(API + Excel + RBAC)* | **10/10** | **100.0%** | **100.0%** | **100.0%** | **100.0%** | **100.0%** | **100.0%** | **0.0%** | **0** |
 
-Na Fase Final, o *benchmark* será alargado a perguntas adicionais validadas por especialistas do ISLA e avaliado também com o modelo LLM local em execução (`qwen2.5:7b-instruct` / `llama3.1:8b`) para medir latência, qualidade narrativa e robustez face a pedidos coloquiais.
+Na Fase Final, o *benchmark* será alargado a perguntas adicionais validadas por especialistas do ISLA e avaliado também com modelos LLM locais de baixo consumo (`qwen3:8b` / `qwen3:4b-instruct` em Ollama) para medir latência, qualidade narrativa e robustez face a pedidos coloquiais.
 
 ## 7. Planeamento de Execução
 

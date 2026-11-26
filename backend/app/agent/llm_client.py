@@ -87,6 +87,8 @@ class OpenAICompatibleLLMClient:
             "tool_choice": "auto",
             "temperature": 0.0,
         }
+        if self.settings.llm_reasoning_effort != "default":
+            body["reasoning_effort"] = self.settings.llm_reasoning_effort
 
         try:
             if self._external_client is not None:

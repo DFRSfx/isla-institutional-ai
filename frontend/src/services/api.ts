@@ -77,6 +77,15 @@ export const api = {
     return request<MessageItem[]>(`/api/v1/conversations/${conversationId}/messages`);
   },
 
+  deleteConversation(
+    conversationId: string,
+  ): Promise<{ status: string; conversation_id: string }> {
+    return request<{ status: string; conversation_id: string }>(
+      `/api/v1/conversations/${conversationId}`,
+      { method: "DELETE" },
+    );
+  },
+
   listReports(): Promise<ReportBundle[]> {
     return request<ReportBundle[]>("/api/v1/reports");
   },

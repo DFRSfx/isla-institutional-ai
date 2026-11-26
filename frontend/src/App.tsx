@@ -62,6 +62,21 @@ export function App() {
     setChatError(null);
   };
 
+  const handleDeleteConversation = async (id: string) => {
+    try {
+      await api.deleteConversation(id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (activeConversationId === id) {
+        setActiveConversationId(null);
+        setAnimatingMessageId(null);
+        setMessages([]);
+        setChatError(null);
+      }
+    } catch (err) {
+      setChatError(err instanceof ApiError ? err.message : "Erro ao eliminar conversação.");
+    }
+  };
+
   const handleSendMessage = async (text: string) => {
     setChatError(null);
     const optimisticUserMsg: MessageItem = {
@@ -144,6 +159,7 @@ export function App() {
         conversations={conversations}
         activeConversationId={activeConversationId}
         onSelectConversation={(id) => void handleSelectConversation(id)}
+        onDeleteConversation={(id) => void handleDeleteConversation(id)}
         onNewConversation={handleNewConversation}
         onLogout={() => void handleLogout()}
         mobileOpen={mobileOpen}

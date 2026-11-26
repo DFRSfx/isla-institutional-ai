@@ -1,4 +1,6 @@
+import { useState } from "react";
 import {
+  Check,
   Database,
   FileText,
   LogOut,
@@ -6,6 +8,7 @@ import {
   Plus,
   ShieldAlert,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -28,6 +31,7 @@ interface SidebarProps {
   conversations: ConversationItem[];
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
   onNewConversation: () => void;
   onLogout: () => void;
   mobileOpen: boolean;
@@ -41,11 +45,13 @@ export function Sidebar({
   conversations,
   activeConversationId,
   onSelectConversation,
+  onDeleteConversation,
   onNewConversation,
   onLogout,
   mobileOpen,
   onCloseMobile,
 }: SidebarProps) {
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const canAccessAdmin = user.role === "admin" || user.role === "direction";
   const canViewAudit = user.permissions.includes("view_audit_logs");
 
@@ -166,26 +172,75 @@ export function Sidebar({
         {conversations.length === 0 ? (
           <p className="px-2 py-3 text-xs text-neutral-600">Sem conversações anteriores.</p>
         ) : (
-          conversations.map((conv) => (
-            <button
-              key={conv.id}
-              type="button"
-              onClick={() => {
-                onSelectSection("chat");
-                onSelectConversation(conv.id);
-                onCloseMobile();
-              }}
-              className={cn(
-                "w-full text-left px-2.5 py-2 rounded-lg text-xs truncate transition-colors",
-                activeSection === "chat" && activeConversationId === conv.id
-                  ? "bg-neutral-900 text-white border border-neutral-800"
-                  : "text-neutral-400 hover:text-neutral-100 hover:bg-neutral-900/60"
-              )}
-              title={conv.title}
-            >
-              {conv.title}
-            </button>
-          ))
+          conversations.map((conv) => {
+            const isActive = activeSection === "chat" && activeConversationId === conv.id;
+            const isConfirming = confirmDeleteId === conv.id;
+            return (
+              <div
+                key={conv.id}
+                className={cn(
+                  "group flex items-center gap-1 rounded-lg transition-colors",
+                  isActive
+                    ? "bg-neutral-900 text-white border border-neutral-800"
+                    : "text-neutral-400 hover:text-neutral-100 hover:bg-neutral-900/60"
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmDeleteId(null);
+                    onSelectSection("chat");
+                    onSelectConversation(conv.id);
+                    onCloseMobile();
+                  }}
+                  className="flex-1 min-w-0 text-left px-2.5 py-2 text-xs truncate"
+                  title={conv.title}
+                >
+                  {conv.title}
+                </button>
+                {isConfirming ? (
+                  <div className="flex items-center gap-0.5 pr-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmDeleteId(null);
+                        onDeleteConversation(conv.id);
+                      }}
+                      title="Confirmar eliminação"
+                      aria-label="Confirmar eliminação da conversa"
+                      className="p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-950/60 transition-colors"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(null)}
+                      title="Cancelar"
+                      aria-label="Cancelar eliminação"
+                      className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteId(conv.id)}
+                    title="Eliminar conversa"
+                    aria-label={`Eliminar conversa ${conv.title}`}
+                    className={cn(
+                      "p-1.5 mr-1 rounded text-neutral-500 hover:text-red-400 hover:bg-neutral-800/80 transition-all shrink-0",
+                      isActive
+                        ? "opacity-80 hover:opacity-100"
+                        : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                    )}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 

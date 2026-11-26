@@ -16,6 +16,7 @@ from app.schemas import (
     MessageResponse,
     ReportBundleResponse,
 )
+from app.services.audit import record_audit_log
 
 router = APIRouter(tags=["agent"])
 
@@ -102,3 +103,39 @@ def list_conversation_messages(
         item.report_bundle = restored_bundle
         out.append(item)
     return out
+
+
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(
+    conversation_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    conv = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user.id,
+        )
+    )
+    if conv is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversação não encontrada.",
+        )
+
+    title = conv.title
+    db.delete(conv)
+    record_audit_log(
+        db,
+        action="conversation.delete",
+        resource_type="conversation",
+        resource_id=str(conversation_id),
+        user_id=user.id,
+        user_role=user.role,
+        status="success",
+        details={"title": title},
+        ip_address=request.client.host if request.client else None,
+    )
+    db.commit()
+    return {"status": "deleted", "conversation_id": str(conversation_id)}

@@ -45,9 +45,9 @@ class Publication(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     keywords: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     apa_citation: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    isbn: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    issn: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    handle: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    isbn: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    issn: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    handle: Mapped[str | None] = mapped_column(String(512), nullable=True)
     scopus_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     wos_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     openalex_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

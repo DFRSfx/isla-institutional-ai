@@ -9,11 +9,13 @@ Compara três configurações sobre o mesmo conjunto de 10 cenários sintéticos
 
 from __future__ import annotations
 
+import argparse
 from io import BytesIO
 import json
 from pathlib import Path
 import sys
 import tempfile
+import time
 from typing import Any
 
 import openpyxl
@@ -190,7 +192,14 @@ def _create_session_for_config(config_name: str) -> tuple[Session, dict[str, Use
     return db, {"direction": direction, "faculty": faculty}
 
 
-def evaluate_configuration(config_name: str, dataset: dict[str, Any]) -> dict[str, Any]:
+def evaluate_configuration(
+    config_name: str,
+    dataset: dict[str, Any],
+    *,
+    llm_model: str | None = None,
+    llm_base_url: str = "http://localhost:11434/v1",
+    label: str | None = None,
+) -> dict[str, Any]:
     ref_year = int(dataset.get("reference_year", 2026))
     db, users = _create_session_for_config(config_name)
     numeric_checks = 0
@@ -206,13 +215,27 @@ def evaluate_configuration(config_name: str, dataset: dict[str, Any]) -> dict[st
     completeness_passed = 0
     ungrounded_count = 0
     unauthorized_disclosures = 0
+    tool_calls_used = 0
+    latencies: list[float] = []
     scenario_results: list[dict[str, Any]] = []
 
-    offline_llm = OpenAICompatibleLLMClient(Settings(llm_provider="deterministic"))
+    if llm_model:
+        llm_client = OpenAICompatibleLLMClient(
+            Settings(
+                _env_file=None,
+                llm_provider="openai_compatible",
+                llm_base_url=llm_base_url,
+                llm_model=llm_model,
+                llm_reasoning_effort="none",
+                llm_timeout_seconds=60.0,
+            )
+        )
+    else:
+        llm_client = OpenAICompatibleLLMClient(Settings(_env_file=None, llm_provider="deterministic"))
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
-        orchestrator = AgentOrchestrator(reports_dir=tmp_path, llm_client=offline_llm)
+        orchestrator = AgentOrchestrator(reports_dir=tmp_path, llm_client=llm_client)
 
         for sc in dataset["scenarios"]:
             user = users[sc["role"]]
@@ -226,6 +249,7 @@ def evaluate_configuration(config_name: str, dataset: dict[str, Any]) -> dict[st
                 )
                 conv_id = setup_res.conversation_id
 
+            t0 = time.perf_counter()
             res = orchestrator.handle_message(
                 db,
                 user=user,
@@ -233,6 +257,10 @@ def evaluate_configuration(config_name: str, dataset: dict[str, Any]) -> dict[st
                 conversation_id=conv_id,
                 reference_year=ref_year,
             )
+            elapsed = time.perf_counter() - t0
+            latencies.append(elapsed)
+            if res.tool_calls:
+                tool_calls_used += 1
             exp = sc["expected"]
             summary = res.analytics_summary or {}
             kpis = summary.get("kpis") or {}
@@ -347,18 +375,32 @@ def evaluate_configuration(config_name: str, dataset: dict[str, Any]) -> dict[st
 
             if sc_ok:
                 completeness_passed += 1
-            scenario_results.append({"id": sc["id"], "passed": sc_ok})
+            scenario_results.append(
+                {
+                    "id": sc["id"],
+                    "passed": sc_ok,
+                    "latency_s": round(elapsed, 2),
+                    "tools": [tc.get("tool") for tc in res.tool_calls],
+                }
+            )
 
     db.close()
     total_sc = len(dataset["scenarios"])
+    sorted_lat = sorted(latencies)
+    avg_lat = round(sum(sorted_lat) / len(sorted_lat), 2) if sorted_lat else 0.0
+    p95_lat = round(sorted_lat[min(len(sorted_lat) - 1, int(len(sorted_lat) * 0.95))], 2) if sorted_lat else 0.0
 
     def pct(num: int, den: int) -> float:
         return round((num / den) * 100.0, 1) if den else 100.0
 
     return {
-        "configuration": config_name,
+        "configuration": label or config_name,
+        "llm_model": llm_model or "deterministic",
         "scenarios_passed": completeness_passed,
         "scenarios_total": total_sc,
+        "avg_latency_s": avg_lat,
+        "p95_latency_s": p95_lat,
+        "tool_usage_pct": pct(tool_calls_used, total_sc),
         "numeric_accuracy_pct": pct(numeric_passed, numeric_checks),
         "completeness_pct": pct(completeness_passed, total_sc),
         "source_citation_accuracy_pct": pct(citation_passed, citation_checks),
@@ -376,24 +418,80 @@ def run_all_configurations() -> list[dict[str, Any]]:
     return [evaluate_configuration(cfg, dataset) for cfg in ("A", "B", "C")]
 
 
+def run_model_comparison(
+    models: list[str],
+    *,
+    ollama_url: str = "http://localhost:11434/v1",
+) -> list[dict[str, Any]]:
+    dataset = json.loads(DATASET_PATH.read_text(encoding="utf-8"))
+    results = [evaluate_configuration("C", dataset, label="C (Determinístico)")]
+    for model in models:
+        m = model.strip()
+        if not m:
+            continue
+        results.append(
+            evaluate_configuration(
+                "C",
+                dataset,
+                llm_model=m,
+                llm_base_url=ollama_url,
+                label=f"C + {m}",
+            )
+        )
+    return results
+
+
 def format_markdown_table(results: list[dict[str, Any]]) -> str:
     header = (
-        "| Config | Cenários OK | Exatidão Numérica | Completude | Fontes | Cruzamento | "
-        "Ambiguidade | Relatórios | Não Fundamentadas | Fugas RBAC |\n"
-        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
+        "| Config / Modelo | Cenários OK | Latência Média | P95 | Exatidão Numérica | Fontes | "
+        "Cruzamento | Ambiguidade | Relatórios | Não Fundamentadas | Fugas RBAC |\n"
+        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
     )
     rows = []
     for r in results:
         rows.append(
             f"| **{r['configuration']}** | {r['scenarios_passed']}/{r['scenarios_total']} | "
-            f"{r['numeric_accuracy_pct']}% | {r['completeness_pct']}% | "
-            f"{r['source_citation_accuracy_pct']}% | {r['cross_source_accuracy_pct']}% | "
-            f"{r['ambiguity_handling_pct']}% | {r['report_generation_success_pct']}% | "
-            f"{r['ungrounded_claim_rate_pct']}% | {r['unauthorized_disclosure_count']} |"
+            f"{r.get('avg_latency_s', 0.0)}s | {r.get('p95_latency_s', 0.0)}s | "
+            f"{r['numeric_accuracy_pct']}% | {r['source_citation_accuracy_pct']}% | "
+            f"{r['cross_source_accuracy_pct']}% | {r['ambiguity_handling_pct']}% | "
+            f"{r['report_generation_success_pct']}% | {r['ungrounded_claim_rate_pct']}% | "
+            f"{r['unauthorized_disclosure_count']} |"
         )
     return "\n".join([header, *rows])
 
 
 if __name__ == "__main__":
-    all_results = run_all_configurations()
-    print(format_markdown_table(all_results))
+    parser = argparse.ArgumentParser(description="Benchmark científico ISLA Institutional AI Agent")
+    parser.add_argument(
+        "--models",
+        default="",
+        help="Lista de modelos locais separados por vírgula (ex.: qwen3:4b,qwen2.5:7b,qwen3:8b)",
+    )
+    parser.add_argument(
+        "--ollama-url",
+        default="http://localhost:11434/v1",
+        help="Endpoint OpenAI-compatible local (Ollama/vLLM)",
+    )
+    parser.add_argument(
+        "--output-md",
+        default="",
+        help="Caminho opcional para gravar relatório Markdown + JSON",
+    )
+    args = parser.parse_args()
+
+    if args.models.strip():
+        model_list = [m.strip() for m in args.models.split(",") if m.strip()]
+        all_results = run_model_comparison(model_list, ollama_url=args.ollama_url)
+    else:
+        all_results = run_all_configurations()
+
+    md = format_markdown_table(all_results)
+    print(md)
+    if args.output_md:
+        out_path = Path(args.output_md)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(md + "\n", encoding="utf-8")
+        out_path.with_suffix(".json").write_text(
+            json.dumps(all_results, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )

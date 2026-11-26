@@ -1,6 +1,9 @@
+import json
+from collections.abc import Iterator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -52,6 +55,39 @@ def chat(
             ReportBundleResponse(**result.report_bundle) if result.report_bundle else None
         ),
         analytics_summary=result.analytics_summary,
+    )
+
+
+@router.post("/chat/stream")
+def chat_stream(
+    payload: ChatRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    orchestrator: AgentOrchestrator = Depends(get_orchestrator),
+) -> StreamingResponse:
+    ip = request.client.host if request.client else None
+
+    def event_generator() -> Iterator[str]:
+        for evt in orchestrator.handle_message_stream(
+            db,
+            user=user,
+            message_text=payload.message,
+            conversation_id=payload.conversation_id,
+            ip_address=ip,
+        ):
+            name = evt["event"]
+            data = json.dumps(evt["data"], ensure_ascii=False, default=str)
+            yield f"event: {name}\ndata: {data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

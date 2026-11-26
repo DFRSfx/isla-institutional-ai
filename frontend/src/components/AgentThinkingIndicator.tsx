@@ -48,7 +48,11 @@ const THINKING_STAGES: ThinkingStage[] = [
   },
 ];
 
-export function AgentThinkingIndicator() {
+interface AgentThinkingIndicatorProps {
+  liveStageLabel?: string | null;
+}
+
+export function AgentThinkingIndicator({ liveStageLabel }: AgentThinkingIndicatorProps = {}) {
   const [elapsedMs, setElapsedMs] = useState(0);
 
   useEffect(() => {
@@ -68,6 +72,7 @@ export function AgentThinkingIndicator() {
 
   const activeStage = THINKING_STAGES[activeIdx];
   const ActiveIcon = activeStage.icon;
+  const displayLabel = liveStageLabel || activeStage.label;
   const elapsedSeconds = (elapsedMs / 1000).toFixed(1);
 
   return (
@@ -75,7 +80,7 @@ export function AgentThinkingIndicator() {
       className="flex items-start gap-3 animate-chat-msg-enter"
       role="status"
       aria-live="polite"
-      aria-label={activeStage.label}
+      aria-label={displayLabel}
     >
       {/* Avatar animado com aura subtil */}
       <div className="relative h-7 w-7 shrink-0 mt-0.5">
@@ -95,10 +100,10 @@ export function AgentThinkingIndicator() {
           <div className="flex items-center gap-2 min-w-0">
             <ActiveIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <span
-              key={activeIdx}
+              key={displayLabel}
               className="text-xs font-medium truncate animate-chat-shimmer-text animate-chat-step-enter"
             >
-              {activeStage.label}
+              {displayLabel}
             </span>
           </div>
 

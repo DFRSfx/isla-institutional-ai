@@ -1,5 +1,6 @@
 import json
 import re
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -383,6 +384,352 @@ class AgentOrchestrator:
             report_bundle,
             analytics_summary,
         )
+
+    def _try_fast_route(
+        self,
+        *,
+        ctx: ToolContext,
+        prev_messages: list[Message],
+        user_message: str,
+        reference_year: int | None,
+    ) -> tuple[dict[str, Any], list[str], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None, dict[str, Any] | None] | None:
+        """
+        Router determinístico rápido: para pedidos analíticos inequívocos (escola, período,
+        estado das fontes ou docente com identificador exato / próprios dados), executa a
+        ferramenta SQL+RBAC diretamente (<10ms) sem gastar uma chamada LLM extra só para escolher
+        a ferramenta. Pedidos ambíguos ou abertos seguem para o loop completo de tool calling.
+        """
+        previous_scope = _extract_last_scope(prev_messages)
+        plan = build_execution_plan(
+            user_message,
+            previous_scope=previous_scope,
+            reference_year=reference_year,
+        )
+        if plan.intent == "clarify":
+            return None
+
+        if plan.intent == "sources_status":
+            out = execute_registered_tool(
+                name="get_data_sources_status",
+                arguments={},
+                ctx=ctx,
+                report_generator=self.report_generator,
+                reports_dir=self.reports_dir,
+                reference_year=reference_year,
+            )
+            return (
+                out.llm_payload,
+                ["Router rápido -> consultar estado das fontes sincronizadas"],
+                [out.audit_meta],
+                out.sources,
+                None,
+                None,
+            )
+
+        if plan.intent == "school_report":
+            args: dict[str, Any] = {
+                "school_code": plan.school_code,
+                "year_from": plan.year_from,
+                "year_to": plan.year_to,
+                "researcher_id": str(plan.researcher_id) if plan.researcher_id else None,
+                "compare_year_a": plan.compare_years[0] if plan.compare_years else None,
+                "compare_year_b": plan.compare_years[1] if plan.compare_years else None,
+                "generate_reports": plan.wants_reports,
+            }
+            out = execute_registered_tool(
+                name="get_scientific_production_report_data",
+                arguments=args,
+                ctx=ctx,
+                report_generator=self.report_generator,
+                reports_dir=self.reports_dir,
+                reference_year=reference_year,
+            )
+            if out.llm_payload.get("access_denied"):
+                return None
+            return (
+                out.llm_payload,
+                ["Router rápido -> executar análise determinística SQL + RBAC"],
+                [out.audit_meta],
+                out.sources,
+                out.report_bundle,
+                out.analytics_summary,
+            )
+
+        if plan.intent == "researcher_report":
+            query = plan.researcher_query or ""
+            res_identifier: str | None = None
+            if query == "__self__":
+                if ctx.user.researcher_id is None:
+                    return None
+                res_identifier = str(ctx.user.researcher_id)
+            elif CV_PATTERN.search(query) or EMAIL_PATTERN.search(query):
+                res_identifier = query
+            else:
+                # Nome solto: deixar o fluxo normal pedir confirmação de identidade
+                return None
+
+            out = execute_registered_tool(
+                name="get_scientific_production_report_data",
+                arguments={
+                    "researcher_id": res_identifier,
+                    "year_from": plan.year_from,
+                    "year_to": plan.year_to,
+                    "compare_year_a": plan.compare_years[0] if plan.compare_years else None,
+                    "compare_year_b": plan.compare_years[1] if plan.compare_years else None,
+                    "generate_reports": plan.wants_reports,
+                },
+                ctx=ctx,
+                report_generator=self.report_generator,
+                reports_dir=self.reports_dir,
+                reference_year=reference_year,
+            )
+            if out.llm_payload.get("access_denied") or out.llm_payload.get("error"):
+                return None
+            return (
+                out.llm_payload,
+                ["Router rápido -> validar identidade exata e calcular métricas SQL + RBAC"],
+                [out.audit_meta],
+                out.sources,
+                out.report_bundle,
+                out.analytics_summary,
+            )
+
+        return None
+
+    def handle_message_stream(
+        self,
+        db: Session,
+        *,
+        user: User,
+        message_text: str,
+        conversation_id: UUID | None = None,
+        ip_address: str | None = None,
+        reference_year: int | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """
+        Executa um turno de chat com eventos SSE em tempo real:
+        - `stage`: etapas reais do backend (`rbac`, `query`, `generate`)
+        - `meta`: `conversation_id`, `analytics_summary`, `report_bundle`, `sources`, `plan`
+        - `delta`: tokens gerados em tempo real pelo LLM local
+        - `done`: payload final persistido (`message_id`, `answer`, `needs_clarification`)
+        """
+        yield {
+            "event": "stage",
+            "data": {"stage": "rbac", "label": "A validar permissões e interpretar o pedido..."},
+        }
+
+        conversation: Conversation | None = None
+        if conversation_id is not None:
+            conversation = db.scalar(
+                select(Conversation).where(
+                    Conversation.id == conversation_id,
+                    Conversation.user_id == user.id,
+                )
+            )
+
+        # Caminho rápido: router determinístico + streaming direto do LLM (1 única chamada LLM!)
+        if self.llm_client.is_ready:
+            prev_messages = (
+                list(
+                    db.scalars(
+                        select(Message)
+                        .where(Message.conversation_id == conversation.id)
+                        .order_by(Message.created_at)
+                    ).all()
+                )
+                if conversation is not None
+                else []
+            )
+            ctx = ToolContext(db=db, user=user, ip_address=ip_address)
+            yield {
+                "event": "stage",
+                "data": {
+                    "stage": "query",
+                    "label": "A consultar Portal Científico e base de investigadores...",
+                },
+            }
+            fast = self._try_fast_route(
+                ctx=ctx,
+                prev_messages=prev_messages,
+                user_message=message_text,
+                reference_year=reference_year,
+            )
+            if fast is not None:
+                (
+                    llm_payload,
+                    plan_steps,
+                    tool_calls_meta,
+                    sources,
+                    report_bundle,
+                    analytics_summary,
+                ) = fast
+
+                if conversation is None:
+                    conversation = Conversation(
+                        user_id=user.id,
+                        title=message_text.strip()[:80] or "Nova conversação",
+                    )
+                    db.add(conversation)
+                    db.flush()
+
+                db.add(Message(conversation_id=conversation.id, role="user", content=message_text))
+                db.flush()
+
+                yield {
+                    "event": "meta",
+                    "data": {
+                        "conversation_id": str(conversation.id),
+                        "plan": plan_steps,
+                        "tool_calls": tool_calls_meta,
+                        "sources": sources,
+                        "report_bundle": report_bundle,
+                        "analytics_summary": analytics_summary,
+                    },
+                }
+                yield {
+                    "event": "stage",
+                    "data": {
+                        "stage": "generate",
+                        "label": "A redigir análise em tempo real com o modelo local...",
+                    },
+                }
+
+                ref_year = reference_year or datetime.now(UTC).year
+                role_context = (
+                    f"Contexto de sessão (aplicado pelo backend): perfil={ctx.user.role}, "
+                    f"ano_referencia={ref_year}"
+                )
+                stream_messages: list[dict[str, Any]] = [
+                    {"role": "system", "content": f"{SYSTEM_PROMPT}\n\n{role_context}"}
+                ]
+                for old in prev_messages[-6:]:
+                    if old.role in {"user", "assistant"}:
+                        stream_messages.append({"role": old.role, "content": old.content})
+                stream_messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Pergunta do utilizador: {message_text}\n\n"
+                            "Dados verificados em SQL pelo backend (usa EXCLUSIVAMENTE estes números):\n"
+                            f"{json.dumps(llm_payload, ensure_ascii=False)}"
+                        ),
+                    }
+                )
+
+                chunks: list[str] = []
+                stream_failed = False
+                try:
+                    for token in self.llm_client.stream_chat_completion(messages=stream_messages):
+                        chunks.append(token)
+                        yield {"event": "delta", "data": {"text": token}}
+                except LLMClientError as exc:
+                    stream_failed = True
+                    record_audit_log(
+                        db,
+                        action="agent.llm.stream_fallback",
+                        resource_type="conversation",
+                        resource_id=str(conversation.id),
+                        user_id=user.id,
+                        user_role=user.role,
+                        status="error",
+                        details={"error": str(exc)},
+                        ip_address=ip_address,
+                    )
+
+                final_answer = "".join(chunks).strip()
+                if stream_failed or not final_answer:
+                    # Fallback seguro com os dados já calculados em SQL
+                    kpis = (analytics_summary or {}).get("kpis")
+                    if kpis:
+                        final_answer = (
+                            f"### Resumo de Produção Científica\n"
+                            f"- **Publicações**: {kpis['publications']}\n"
+                            f"- **Indexadas Scopus / WoS**: {kpis['scopus']} / {kpis['wos']} "
+                            f"({kpis['indexed_pct']}%)\n"
+                            f"- **Quartil Q1**: {kpis['q1']} | **Citações**: {kpis['citations']} "
+                            f"| **Open Access**: {kpis['open_access_pct']}%"
+                        )
+                    else:
+                        final_answer = "Consulta concluída com base nas fontes sincronizadas."
+                    yield {"event": "delta", "data": {"text": final_answer}}
+
+                if sources and "Fontes utilizadas" not in final_answer:
+                    footer = _format_sources_footer(sources)
+                    final_answer += footer
+                    yield {"event": "delta", "data": {"text": footer}}
+
+                assistant_msg = Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=final_answer,
+                    sources_json=sources,
+                    tool_calls_json=tool_calls_meta,
+                )
+                db.add(assistant_msg)
+                db.flush()
+                record_audit_log(
+                    db,
+                    action="agent.chat.turn",
+                    resource_type="conversation",
+                    resource_id=str(conversation.id),
+                    user_id=user.id,
+                    user_role=user.role,
+                    status="success",
+                    details={
+                        "mode": "fast_router_stream",
+                        "report_generated": report_bundle is not None,
+                        "tools_used": [tc.get("tool") for tc in tool_calls_meta],
+                    },
+                    ip_address=ip_address,
+                )
+                db.commit()
+                db.refresh(assistant_msg)
+
+                yield {
+                    "event": "done",
+                    "data": {
+                        "conversation_id": str(conversation.id),
+                        "message_id": str(assistant_msg.id),
+                        "answer": final_answer,
+                        "needs_clarification": False,
+                    },
+                }
+                return
+
+        # Caminho completo (tool calling multi-passo, confirmações ou modo determinístico)
+        yield {
+            "event": "stage",
+            "data": {"stage": "generate", "label": "A processar resposta institucional..."},
+        }
+        result = self.handle_message(
+            db,
+            user=user,
+            message_text=message_text,
+            conversation_id=conversation_id,
+            ip_address=ip_address,
+            reference_year=reference_year,
+        )
+        yield {
+            "event": "meta",
+            "data": {
+                "conversation_id": str(result.conversation_id),
+                "plan": result.plan,
+                "tool_calls": result.tool_calls,
+                "sources": result.sources,
+                "report_bundle": result.report_bundle,
+                "analytics_summary": result.analytics_summary,
+            },
+        }
+        yield {"event": "delta", "data": {"text": result.answer}}
+        yield {
+            "event": "done",
+            "data": {
+                "conversation_id": str(result.conversation_id),
+                "message_id": str(result.message_id),
+                "answer": result.answer,
+                "needs_clarification": result.needs_clarification,
+            },
+        }
 
     def handle_message(
         self,

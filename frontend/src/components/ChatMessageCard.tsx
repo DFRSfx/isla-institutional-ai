@@ -15,6 +15,7 @@ import type { MessageItem } from "@/types/api";
 interface ChatMessageCardProps {
   message: MessageItem;
   animateTyping?: boolean;
+  isStreaming?: boolean;
   onTypingComplete?: () => void;
 }
 
@@ -102,16 +103,17 @@ function renderFormattedLines(content: string, showCursor = false) {
 export function ChatMessageCard({
   message,
   animateTyping = false,
+  isStreaming = false,
   onTypingComplete,
 }: ChatMessageCardProps) {
   const [showProvenance, setShowProvenance] = useState(false);
   const [downloading, setDownloading] = useState<"pdf" | "excel" | null>(null);
   const [revealedChars, setRevealedChars] = useState<number>(() =>
-    animateTyping && message.role === "assistant" ? 0 : message.content.length,
+    animateTyping && !isStreaming && message.role === "assistant" ? 0 : message.content.length,
   );
 
   useEffect(() => {
-    if (!animateTyping || message.role !== "assistant") {
+    if (isStreaming || !animateTyping || message.role !== "assistant") {
       setRevealedChars(message.content.length);
       return;
     }
@@ -156,10 +158,13 @@ export function ChatMessageCard({
 
     rafId = window.requestAnimationFrame(step);
     return () => window.cancelAnimationFrame(rafId);
-  }, [animateTyping, message.content, message.id, message.role, onTypingComplete]);
+  }, [animateTyping, isStreaming, message.content, message.id, message.role, onTypingComplete]);
 
-  const isTyping = animateTyping && message.role === "assistant" && revealedChars < message.content.length;
-  const visibleContent = isTyping ? message.content.slice(0, revealedChars) : message.content;
+  const isTyping =
+    isStreaming ||
+    (animateTyping && message.role === "assistant" && revealedChars < message.content.length);
+  const visibleContent =
+    isStreaming || !isTyping ? message.content : message.content.slice(0, revealedChars);
 
   if (message.role === "user") {
     return (

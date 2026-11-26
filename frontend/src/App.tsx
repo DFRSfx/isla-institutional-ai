@@ -17,6 +17,8 @@ export function App() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [liveStageLabel, setLiveStageLabel] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -79,6 +81,7 @@ export function App() {
 
   const handleSendMessage = async (text: string) => {
     setChatError(null);
+    setLiveStageLabel(null);
     const optimisticUserMsg: MessageItem = {
       id: `temp-${Date.now()}`,
       role: "user",
@@ -87,27 +90,81 @@ export function App() {
       tool_calls_json: [],
       created_at: new Date().toISOString(),
     };
+    const streamTempId = `stream-${Date.now()}`;
+    let streamCreated = false;
+
+    const ensureStreamMessage = (patch: Partial<MessageItem> = {}) => {
+      if (!streamCreated) {
+        streamCreated = true;
+        setStreamingMessageId(streamTempId);
+        const initial: MessageItem = {
+          id: streamTempId,
+          role: "assistant",
+          content: "",
+          sources_json: [],
+          tool_calls_json: [],
+          created_at: new Date().toISOString(),
+          ...patch,
+        };
+        setMessages((prev) => [...prev, initial]);
+      } else if (Object.keys(patch).length > 0) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === streamTempId ? { ...m, ...patch } : m)),
+        );
+      }
+    };
+
     setMessages((prev) => [...prev, optimisticUserMsg]);
     setIsSending(true);
     try {
-      const res = await api.sendChatMessage(text, activeConversationId);
-      setActiveConversationId(res.conversation_id);
-      const assistantMsg: MessageItem = {
-        id: res.message_id,
-        role: "assistant",
-        content: res.answer,
-        sources_json: res.sources,
-        tool_calls_json: res.tool_calls,
-        created_at: new Date().toISOString(),
-        plan: res.plan,
-        report_bundle: res.report_bundle,
-        analytics_summary: res.analytics_summary,
-        needs_clarification: res.needs_clarification,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-      setAnimatingMessageId(assistantMsg.id);
+      await api.sendChatMessageStream(text, activeConversationId, {
+        onStage: (stage) => {
+          setLiveStageLabel(stage.label);
+        },
+        onMeta: (meta) => {
+          setActiveConversationId(meta.conversation_id);
+          ensureStreamMessage({
+            plan: meta.plan,
+            tool_calls_json: meta.tool_calls,
+            sources_json: meta.sources,
+            report_bundle: meta.report_bundle,
+            analytics_summary: meta.analytics_summary,
+          });
+        },
+        onDelta: (delta) => {
+          if (!delta.text) return;
+          if (!streamCreated) {
+            ensureStreamMessage({ content: delta.text });
+          } else {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamTempId ? { ...m, content: m.content + delta.text } : m,
+              ),
+            );
+          }
+        },
+        onDone: (done) => {
+          setActiveConversationId(done.conversation_id);
+          setStreamingMessageId(null);
+          setLiveStageLabel(null);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === streamTempId
+                ? {
+                    ...m,
+                    id: done.message_id,
+                    content: done.answer,
+                    needs_clarification: done.needs_clarification,
+                  }
+                : m,
+            ),
+          );
+        },
+      });
       void loadConversations();
     } catch (err) {
+      setStreamingMessageId(null);
+      setLiveStageLabel(null);
       setChatError(err instanceof ApiError ? err.message : "Erro ao comunicar com o agente.");
     } finally {
       setIsSending(false);
@@ -184,6 +241,8 @@ export function App() {
             user={user}
             messages={messages}
             animatingMessageId={animatingMessageId}
+            streamingMessageId={streamingMessageId}
+            liveStageLabel={liveStageLabel}
             onTypingComplete={handleTypingComplete}
             isSending={isSending}
             error={chatError}

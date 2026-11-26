@@ -69,6 +69,90 @@ export const api = {
     });
   },
 
+  async sendChatMessageStream(
+    message: string,
+    conversationId: string | null | undefined,
+    handlers: {
+      onStage?: (payload: { stage: string; label: string }) => void;
+      onMeta?: (payload: {
+        conversation_id: string;
+        plan: string[];
+        tool_calls: Record<string, unknown>[];
+        sources: ChatResponse["sources"];
+        report_bundle: ChatResponse["report_bundle"];
+        analytics_summary: ChatResponse["analytics_summary"];
+      }) => void;
+      onDelta?: (payload: { text: string }) => void;
+      onDone?: (payload: {
+        conversation_id: string;
+        message_id: string;
+        answer: string;
+        needs_clarification: boolean;
+      }) => void;
+    },
+  ): Promise<void> {
+    const res = await fetch("/api/v1/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      credentials: "include",
+      body: JSON.stringify({
+        message,
+        conversation_id: conversationId ?? null,
+      }),
+    });
+    if (!res.ok || !res.body) {
+      let detail = `Erro HTTP ${res.status}`;
+      try {
+        const payload = (await res.json()) as { detail?: string };
+        if (payload.detail) detail = payload.detail;
+      } catch {
+        // ignora payload não-JSON
+      }
+      throw new ApiError(res.status, detail);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    const dispatchBlock = (rawBlock: string) => {
+      const lines = rawBlock.split(/\r?\n/);
+      let eventName = "message";
+      const dataLines: string[] = [];
+      for (const line of lines) {
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trim());
+        }
+      }
+      if (dataLines.length === 0) return;
+      try {
+        const parsed = JSON.parse(dataLines.join("\n"));
+        if (eventName === "stage") handlers.onStage?.(parsed);
+        else if (eventName === "meta") handlers.onMeta?.(parsed);
+        else if (eventName === "delta") handlers.onDelta?.(parsed);
+        else if (eventName === "done") handlers.onDone?.(parsed);
+      } catch {
+        // ignora evento malformado
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        if (block.trim()) dispatchBlock(block);
+      }
+    }
+    if (buffer.trim()) {
+      dispatchBlock(buffer);
+    }
+  },
+
   listConversations(): Promise<ConversationItem[]> {
     return request<ConversationItem[]>("/api/v1/conversations");
   },

@@ -9,6 +9,8 @@ interface ChatPageProps {
   user: UserProfile;
   messages: MessageItem[];
   animatingMessageId: string | null;
+  streamingMessageId: string | null;
+  liveStageLabel: string | null;
   onTypingComplete: () => void;
   isSending: boolean;
   error: string | null;
@@ -21,6 +23,8 @@ export function ChatPage({
   user,
   messages,
   animatingMessageId,
+  streamingMessageId,
+  liveStageLabel,
   onTypingComplete,
   isSending,
   error,
@@ -37,14 +41,14 @@ export function ChatPage({
   }, [messages.length, isSending]);
 
   useEffect(() => {
-    if (!animatingMessageId || !threadRef.current) return;
+    if ((!animatingMessageId && !streamingMessageId) || !threadRef.current) return;
     const el = threadRef.current;
     const observer = new ResizeObserver(() => {
       bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [animatingMessageId]);
+  }, [animatingMessageId, streamingMessageId]);
 
   if (messages.length === 0) {
     return (
@@ -74,11 +78,14 @@ export function ChatPage({
             <ChatMessageCard
               key={msg.id}
               message={msg}
+              isStreaming={msg.id === streamingMessageId}
               animateTyping={msg.id === animatingMessageId}
               onTypingComplete={msg.id === animatingMessageId ? onTypingComplete : undefined}
             />
           ))}
-          {isSending && <AgentThinkingIndicator />}
+          {isSending && !streamingMessageId && (
+            <AgentThinkingIndicator liveStageLabel={liveStageLabel} />
+          )}
           {error && (
             <div className="rounded-lg border border-red-900/60 bg-red-950/50 px-4 py-2.5 text-xs text-red-200">
               {error}

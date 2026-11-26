@@ -398,3 +398,29 @@ def test_ungrounded_llm_answer_without_tool_call_triggers_deterministic_fallback
     assert res.analytics_summary is not None
     assert res.analytics_summary["kpis"]["publications"] == 1
     assert "0 publicações" not in res.answer
+
+
+def test_chat_stream_emits_stage_meta_delta_and_done(
+    db_session: Session,
+    tmp_path: Path,
+) -> None:
+    _seed_data(db_session)
+    direction = make_user(db_session, email="direcao.stream@islagaia.pt", role=UserRole.DIRECTION)
+    offline = OpenAICompatibleLLMClient(Settings(_env_file=None, llm_provider="deterministic"))
+    events = list(
+        AgentOrchestrator(reports_dir=tmp_path, llm_client=offline).handle_message_stream(
+            db_session,
+            user=direction,
+            message_text="Resume a produção científica da EST em 2024.",
+            reference_year=2026,
+        )
+    )
+    event_names = [e["event"] for e in events]
+    assert "stage" in event_names
+    assert "meta" in event_names
+    assert "delta" in event_names
+    assert event_names[-1] == "done"
+    done_data = events[-1]["data"]
+    assert done_data["conversation_id"]
+    assert done_data["message_id"]
+    assert "EST" in done_data["answer"]

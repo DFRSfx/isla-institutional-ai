@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     portal_api_publications_path: str = "/api/powerbi/publications"
     portal_api_token: str = ""
     portal_api_timeout_seconds: float = 60.0
+    portal_auto_sync_enabled: bool = True
+    portal_auto_sync_interval_minutes: int = 720  # 12h (alinhado com X-PowerBI-Cache-TTL)
 
     max_excel_upload_mb: int = 20
     conversation_retention_days: int = 365

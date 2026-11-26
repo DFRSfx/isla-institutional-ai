@@ -51,7 +51,7 @@ def map_external_role(external_role: str | None) -> UserRole:
 
 class InstitutionalAuthClient:
     """
-    Cliente backend-only para a API de autenticação institucional (`https://auth.dariosoares.dev`).
+    Cliente backend-only para a API de autenticação institucional (`https://cksi-dev.islagaia.pt`).
     O cabeçalho `X-API-Key` nunca é exposto ao navegador nem incluído em logs.
     """
 

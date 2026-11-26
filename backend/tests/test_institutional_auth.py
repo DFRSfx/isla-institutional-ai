@@ -51,7 +51,7 @@ def _make_mock_auth_client(
     http_client = httpx.Client(transport=httpx.MockTransport(handler))
     settings = Settings(
         auth_mode="hybrid",
-        institutional_auth_base_url="https://auth.dariosoares.dev",
+        institutional_auth_base_url="https://cksi-dev.islagaia.pt",
         institutional_auth_api_key=api_key,
         institutional_auth_origin=origin,
     )
@@ -106,7 +106,7 @@ def test_institutional_ldap_login_provisions_teacher_and_links_researcher(
 
         # Verifica cabeçalhos X-API-Key e Origin enviados ao endpoint /v1/token
         assert len(captured) == 1
-        assert captured[0]["url"] == "https://auth.dariosoares.dev/v1/token"
+        assert captured[0]["url"] == "https://cksi-dev.islagaia.pt/v1/token"
         assert captured[0]["api_key"] == "iag_live_test_token"
         assert captured[0]["origin"] == "https://app.islagaia.pt"
 

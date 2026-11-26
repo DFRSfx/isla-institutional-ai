@@ -39,7 +39,7 @@ Mesmo quando um docente consulta publicações institucionais, os seguintes camp
 
 ## 4. Autenticação Institucional e Gestão de Credenciais
 
-- **API de Autenticação Institucional (`https://auth.dariosoares.dev/v1/token`)**:
+- **API de Autenticação Institucional (`https://cksi-dev.islagaia.pt/v1/token`)**:
   - Chamada exclusivamente *server-to-server* pelo backend FastAPI (`backend/app/services/institutional_auth.py`), enviando `X-API-Key` e `Origin` configurados via variáveis de ambiente (`INSTITUTIONAL_AUTH_API_KEY`, `INSTITUTIONAL_AUTH_ORIGIN`). O token da app nunca é exposto ao browser.
   - Suporta três modos (`AUTH_MODE`): `hybrid` (tenta LDAP institucional e permite fallback para contas locais), `institutional` (exclusivamente LDAP) e `local`.
   - **Provisionamento JIT e ligação automática ao docente**: no primeiro login LDAP válido, o utilizador é criado/atualizado localmente por `email`, preserva promoções locais de perfil (ex.: docente promovido a `direction`), e é ligado automaticamente ao seu registo em `researchers` via `email`.

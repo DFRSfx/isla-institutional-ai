@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     # Autenticação institucional (LDAP API — X-API-Key mantido estritamente no backend)
     auth_mode: Literal["local", "hybrid", "institutional"] = "hybrid"
-    institutional_auth_base_url: str = "https://auth.dariosoares.dev"
+    institutional_auth_base_url: str = "https://cksi-dev.islagaia.pt"
     institutional_auth_api_key: str = ""
     institutional_auth_origin: str = "http://localhost:5173"
     institutional_auth_timeout_seconds: float = 15.0

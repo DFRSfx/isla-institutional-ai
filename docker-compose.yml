@@ -35,6 +35,23 @@ services:
       - reports_data:/app/reports_output
     ports:
       - "${BACKEND_PORT:-8001}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: isla_ai_frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
 
   # LLM local on-premise (RGPD/NIS2). Arrancar opcionalmente com:
   #   docker compose --profile local-llm up -d

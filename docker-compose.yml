@@ -31,6 +31,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-isla_ai}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no ficheiro .env}@db:5432/${POSTGRES_DB:-isla_ai}
       REPORTS_OUTPUT_DIR: /app/reports_output
+      LLM_BASE_URL: http://ollama:11434/v1
     volumes:
       - reports_data:/app/reports_output
     ports:
@@ -53,17 +54,22 @@ services:
     ports:
       - "${FRONTEND_PORT:-5173}:80"
 
-  # LLM local on-premise (RGPD/NIS2). Arrancar opcionalmente com:
-  #   docker compose --profile local-llm up -d
+  # LLM local on-premise (RGPD/NIS2)
   ollama:
     image: ollama/ollama:latest
     container_name: isla_ai_ollama
-    profiles: ["local-llm"]
     restart: unless-stopped
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:
       - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
 volumes:
   postgres_data:

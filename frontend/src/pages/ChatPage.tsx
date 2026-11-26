@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import { AgentThinkingIndicator } from "@/components/AgentThinkingIndicator";
 import { ChatMessageCard } from "@/components/ChatMessageCard";
 import { VercelV0Chat } from "@/components/ui/v0-ai-chat";
 import type { MessageItem, UserProfile } from "@/types/api";
@@ -57,11 +58,7 @@ export function ChatPage({
           {messages.map((msg) => (
             <ChatMessageCard key={msg.id} message={msg} />
           ))}
-          {isSending && (
-            <div className="text-xs font-mono text-neutral-500 pl-10">
-              A consultar fontes estruturadas e validar cálculos...
-            </div>
-          )}
+          {isSending && <AgentThinkingIndicator />}
           {error && (
             <div className="rounded-lg border border-red-900/60 bg-red-950/50 px-4 py-2.5 text-xs text-red-200">
               {error}

@@ -75,7 +75,7 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
 
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex justify-end animate-chat-msg-enter">
         <div className="max-w-[82%] rounded-2xl bg-neutral-800/90 border border-neutral-700/70 px-4 py-2.5 text-sm text-white leading-relaxed">
           {message.content}
         </div>
@@ -100,7 +100,7 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
   };
 
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex items-start gap-3 animate-chat-msg-enter">
       <div className="h-7 w-7 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center shrink-0 mt-0.5">
         {message.needs_clarification ? (
           <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
@@ -112,10 +112,25 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
       <div className="flex-1 min-w-0 space-y-3">
         {kpis && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <KpiTile label="Publicações" value={String(kpis.publications)} />
-            <KpiTile label="Scopus / WoS" value={`${kpis.scopus} / ${kpis.wos}`} sub={`${kpis.indexed_pct}%`} />
-            <KpiTile label="Quartil Q1" value={String(kpis.q1)} sub={`OA: ${kpis.open_access_pct}%`} />
-            <KpiTile label="Citações" value={String(kpis.citations)} sub={`Média ${kpis.avg_citations}`} />
+            <KpiTile label="Publicações" value={String(kpis.publications)} delayMs={0} />
+            <KpiTile
+              label="Scopus / WoS"
+              value={`${kpis.scopus} / ${kpis.wos}`}
+              sub={`${kpis.indexed_pct}%`}
+              delayMs={55}
+            />
+            <KpiTile
+              label="Quartil Q1"
+              value={String(kpis.q1)}
+              sub={`OA: ${kpis.open_access_pct}%`}
+              delayMs={110}
+            />
+            <KpiTile
+              label="Citações"
+              value={String(kpis.citations)}
+              sub={`Média ${kpis.avg_citations}`}
+              delayMs={165}
+            />
           </div>
         )}
 
@@ -137,13 +152,13 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
                   <div key={point.year} className="flex-1 flex flex-col items-center gap-1 h-full">
                     <div className="w-full flex-1 flex items-end justify-center gap-1">
                       <div
-                        className="w-3 rounded-t bg-neutral-200 transition-all"
+                        className="w-3 rounded-t bg-neutral-200 animate-chat-bar-grow"
                         style={{ height: `${totalPct}%` }}
                         title={`${point.year}: ${point.publications} publicações`}
                       />
                       <div
-                        className="w-3 rounded-t bg-emerald-500/80 transition-all"
-                        style={{ height: `${idxPct}%` }}
+                        className="w-3 rounded-t bg-emerald-500/80 animate-chat-bar-grow"
+                        style={{ height: `${idxPct}%`, animationDelay: "80ms" }}
                         title={`${point.year}: ${point.indexed_scopus_or_wos} indexadas`}
                       />
                     </div>
@@ -175,7 +190,7 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
               className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-700 text-neutral-100 text-xs font-medium hover:bg-neutral-800 transition-colors disabled:opacity-50"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-              {downloading === "excel" ? "A descarregar..." : "Descarregar Excel (6 folhas)"}
+              {downloading === "excel" ? "A descarregar..." : "Descarregar Excel (7 folhas)"}
             </button>
             <span className="text-[11px] font-mono text-neutral-500">
               ID: {message.report_bundle.reproducibility_id}
@@ -236,9 +251,22 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
   );
 }
 
-function KpiTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function KpiTile({
+  label,
+  value,
+  sub,
+  delayMs = 0,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  delayMs?: number;
+}) {
   return (
-    <div className="rounded-xl bg-neutral-900 border border-neutral-800/90 px-3 py-2.5">
+    <div
+      className="rounded-xl bg-neutral-900 border border-neutral-800/90 px-3 py-2.5 animate-chat-msg-enter"
+      style={{ animationDelay: `${delayMs}ms` }}
+    >
       <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-500">{label}</div>
       <div className="text-lg font-semibold text-white tracking-tight mt-0.5">{value}</div>
       {sub && <div className="text-[11px] font-mono text-emerald-400/90">{sub}</div>}

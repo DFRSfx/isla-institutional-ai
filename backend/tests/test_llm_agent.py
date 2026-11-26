@@ -353,3 +353,48 @@ def test_report_tool_accepts_ciencia_vitae_id_and_email_with_rbac(db_session: Se
     assert "error" in unconfirmed.llm_payload
     assert unconfirmed.llm_payload.get("requires_confirmation") is True
     assert unconfirmed.analytics_summary is None
+
+
+def test_ungrounded_llm_answer_without_tool_call_triggers_deterministic_fallback(
+    db_session: Session,
+    tmp_path: Path,
+) -> None:
+    _seed_data(db_session)
+    direction = make_user(db_session, email="direcao.guard@islagaia.pt", role=UserRole.DIRECTION)
+
+    # Simula um LLM que responde "0 publicações" sem chamar nenhuma ferramenta
+    hallucinating_client = OpenAICompatibleLLMClient(
+        settings=Settings(
+            _env_file=None,
+            llm_provider="openai_compatible",
+            llm_base_url="http://localhost:11434/v1",
+            llm_model="qwen2.5:7b",
+        ),
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _req: httpx.Response(
+                    200,
+                    json={
+                        "choices": [
+                            {
+                                "finish_reason": "stop",
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "A EST tem 0 publicações registadas em 2024.",
+                                },
+                            }
+                        ]
+                    },
+                )
+            )
+        ),
+    )
+    res = AgentOrchestrator(reports_dir=tmp_path, llm_client=hallucinating_client).handle_message(
+        db_session,
+        user=direction,
+        message_text="Resume a produção científica da EST em 2024.",
+    )
+    # Guardrail rejeita a alucinação e devolve os KPIs reais em SQL (1 publicação da EST em 2024)
+    assert res.analytics_summary is not None
+    assert res.analytics_summary["kpis"]["publications"] == 1
+    assert "0 publicações" not in res.answer

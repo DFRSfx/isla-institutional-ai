@@ -356,6 +356,20 @@ class AgentOrchestrator:
         if not final_answer:
             raise LLMClientError("LLM não produziu resposta final dentro do limite de passos.")
 
+        # Guardrail anti-alucinação: se o pedido tem âmbito analítico concreto e o LLM
+        # respondeu sem invocar nenhuma ferramenta (ex.: inventou "0 publicações"),
+        # recusa a resposta não fundamentada e ativa o fallback determinístico em SQL.
+        if len(tool_calls_meta) == 0:
+            det_plan = build_execution_plan(
+                user_message,
+                previous_scope=_extract_last_scope(prev_messages),
+                reference_year=reference_year,
+            )
+            if det_plan.intent != "clarify" and "?" not in final_answer:
+                raise LLMClientError(
+                    "LLM respondeu a pedido analítico sem invocar ferramentas estruturadas."
+                )
+
         if sources and "Fontes utilizadas" not in final_answer:
             final_answer = final_answer + _format_sources_footer(sources)
 

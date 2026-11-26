@@ -10,7 +10,6 @@ from app.core.config import Settings
 from app.core.permissions import UserRole
 from app.database.session import get_db
 from app.main import create_app
-from app.models.audit import AuditLog
 from app.models.researcher import Researcher
 from app.models.user import User
 from app.services.excel_import import ExcelImportService
@@ -124,7 +123,7 @@ def test_institutional_ldap_login_provisions_teacher_and_links_researcher(
         assert resp2.json()["user"]["role"] == "direction"
 
 
-def test_institutional_ldap_rejects_student_role_by_default_and_logs_audit(
+def test_institutional_ldap_maps_student_to_dedicated_student_role(
     db_session: Session,
 ) -> None:
     auth_client, _ = _make_mock_auth_client(
@@ -150,12 +149,12 @@ def test_institutional_ldap_rejects_student_role_by_default_and_logs_audit(
             "/api/v1/auth/login",
             json={"username": "a22307370", "password": "secret"},
         )
-        assert resp.status_code == 403
-
-    denied = db_session.scalars(
-        select(AuditLog).where(AuditLog.action == "auth.login.forbidden_role")
-    ).all()
-    assert len(denied) == 1
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["user"]["role"] == "student"
+        assert "view_all_researchers_internal" not in body["user"]["permissions"]
+        assert "view_sensitive_fields" not in body["user"]["permissions"]
+        assert "manage_users" not in body["user"]["permissions"]
 
 
 def test_hybrid_mode_falls_back_to_local_admin_when_ldap_rejects(db_session: Session) -> None:

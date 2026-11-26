@@ -41,7 +41,7 @@ def _seed_data(db: Session) -> None:
 
 def test_llm_client_readiness_and_local_only_rgpd_guardrail() -> None:
     # Desativado por defeito
-    assert OpenAICompatibleLLMClient(Settings()).is_ready is False
+    assert OpenAICompatibleLLMClient(Settings(_env_file=None)).is_ready is False
 
     # Por RGPD/NIS2, endpoint externo é recusado por defeito (LLM_ALLOW_EXTERNAL_ENDPOINTS=False)
     with pytest.raises(ValidationError):

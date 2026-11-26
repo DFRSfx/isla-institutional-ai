@@ -29,9 +29,8 @@ class InstitutionalIdentity:
 
 def map_external_role(external_role: str | None) -> UserRole:
     """
-    Aceita exclusivamente perfis expressamente autorizados.
-    Perfis desconhecidos, vazios ou 'student' são recusados até existir
-    um perfil dedicado com permissões próprias.
+    Aceita exclusivamente perfis expressamente autorizados (`admin`, `direction`,
+    `teacher`/`faculty`, `student`). Perfis desconhecidos ou vazios são recusados.
     """
     normalized = (external_role or "").strip().lower()
     if normalized == "admin":
@@ -41,9 +40,7 @@ def map_external_role(external_role: str | None) -> UserRole:
     if normalized in {"teacher", "faculty", "docente"}:
         return UserRole.FACULTY
     if normalized == "student":
-        raise InstitutionalAuthForbiddenRole(
-            "Acesso reservado a docentes, direção e administradores do ISLA."
-        )
+        return UserRole.STUDENT
     raise InstitutionalAuthForbiddenRole(
         "Perfil institucional desconhecido ou ausente. Acesso recusado."
     )

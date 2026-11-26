@@ -5,6 +5,7 @@ class UserRole(StrEnum):
     ADMIN = "admin"
     DIRECTION = "direction"
     FACULTY = "faculty"
+    STUDENT = "student"
 
 
 class Permission(StrEnum):
@@ -37,6 +38,15 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
         }
     ),
     UserRole.FACULTY: frozenset(
+        {
+            Permission.VIEW_INSTITUTIONAL_PUBLICATIONS,
+            Permission.VIEW_GLOBAL_INDICATORS,
+            Permission.VIEW_OWN_RESEARCHER_DATA,
+            Permission.GENERATE_PDF_REPORT,
+            Permission.GENERATE_EXCEL_REPORT,
+        }
+    ),
+    UserRole.STUDENT: frozenset(
         {
             Permission.VIEW_INSTITUTIONAL_PUBLICATIONS,
             Permission.VIEW_GLOBAL_INDICATORS,

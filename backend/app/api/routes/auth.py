@@ -26,6 +26,7 @@ from app.services.institutional_auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 ROLE_PRECEDENCE: dict[str, int] = {
+    UserRole.STUDENT.value: 0,
     UserRole.FACULTY.value: 1,
     UserRole.DIRECTION.value: 2,
     UserRole.ADMIN.value: 3,

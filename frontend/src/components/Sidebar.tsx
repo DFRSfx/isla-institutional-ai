@@ -18,6 +18,7 @@ const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
   direction: "Direção",
   faculty: "Docente",
+  student: "Estudante",
 };
 
 interface SidebarProps {

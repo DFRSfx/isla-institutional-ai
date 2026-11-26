@@ -86,6 +86,7 @@ class OpenAICompatibleLLMClient:
             "tools": tools,
             "tool_choice": "auto",
             "temperature": 0.0,
+            "max_tokens": self.settings.llm_max_tokens,
         }
         if self.settings.llm_reasoning_effort != "default":
             body["reasoning_effort"] = self.settings.llm_reasoning_effort

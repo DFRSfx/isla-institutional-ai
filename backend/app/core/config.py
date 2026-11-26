@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     llm_allow_external_endpoints: bool = False
     llm_timeout_seconds: float = 45.0
     llm_max_tool_steps: int = 5
+    llm_max_tokens: int = 900
     llm_reasoning_effort: Literal["none", "low", "medium", "high", "default"] = "none"
 
     @field_validator("auth_mode", "llm_provider", "llm_reasoning_effort", mode="before")

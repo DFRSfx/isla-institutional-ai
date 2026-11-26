@@ -251,21 +251,64 @@ def execute_registered_tool(
             "reproducibility_id": data["reproducibility_id"],
         }
 
-        # Minimização de dados enviados ao LLM: apenas métricas agregadas e metadados autorizados
-        # (nunca envia dumps brutos de publicações ou dados pessoais desnecessários).
+        # Minimização e compactação para o LLM local: apenas métricas agregadas essenciais
+        # (reduz drasticamente tokens de contexto, evita truncagem do prompt e acelera inferência;
+        # os dados completos mantêm-se intactos em `analytics_summary`, PDF e Excel).
+        compact_annual = [
+            {
+                "year": p.get("year"),
+                "pubs": p.get("publications"),
+                "indexed": p.get("indexed_scopus_or_wos"),
+                "citations": p.get("citations"),
+            }
+            for p in data["annual_evolution"][-10:]
+        ]
+        compact_top_researchers = [
+            {
+                "name": r.get("name"),
+                "school": r.get("school_code"),
+                "pubs": r.get("publications"),
+                "indexed": r.get("indexed_scopus_or_wos"),
+                "q1": r.get("q1"),
+            }
+            for r in data["top_researchers"][:5]
+        ]
+        compact_top_students = [
+            {
+                "name": s.get("name"),
+                "school": s.get("school_code"),
+                "pubs": s.get("publications"),
+            }
+            for s in data["top_students"][:5]
+        ]
+        compact_sources = [
+            {
+                "label": s.get("label"),
+                "version": s.get("version"),
+                "records": s.get("record_count"),
+                "synced_at": str(s.get("synced_at") or "")[:19],
+            }
+            for s in data["sources"]
+        ]
+        dq = data["data_quality"]
+        compact_quality = {
+            k: v
+            for k, v in dq.items()
+            if (isinstance(v, int) and v > 0) or (k == "notes" and v)
+        }
         minimized_llm_payload = {
             "scope": data["scope"],
             "reproducibility_id": data["reproducibility_id"],
             "kpis": data["kpis"],
             "status_distribution": data["status_distribution"],
-            "annual_evolution": data["annual_evolution"],
+            "annual_evolution_recent": compact_annual,
             "quartile_distribution": data["quartile_distribution"],
-            "top_researchers": data["top_researchers"],
-            "top_students": data["top_students"],
+            "top_researchers": compact_top_researchers,
+            "top_students": compact_top_students,
             "year_comparison": data["year_comparison"],
-            "data_quality": data["data_quality"],
-            "sources": data["sources"],
-            "report_bundle": report_bundle,
+            "data_quality": compact_quality,
+            "sources": compact_sources,
+            "report_generated": report_bundle is not None,
         }
         return ToolExecutionOutput(
             tool_name=name,

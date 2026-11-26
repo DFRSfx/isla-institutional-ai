@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -14,16 +14,42 @@ import type { MessageItem } from "@/types/api";
 
 interface ChatMessageCardProps {
   message: MessageItem;
+  animateTyping?: boolean;
+  onTypingComplete?: () => void;
 }
 
-function renderFormattedLines(content: string) {
-  return content.split("\n").map((line, idx) => {
+function renderFormattedLines(content: string, showCursor = false) {
+  const lines = content.split("\n");
+  let lastNonEmptyIdx = lines.length - 1;
+  while (lastNonEmptyIdx > 0 && !lines[lastNonEmptyIdx].trim()) {
+    lastNonEmptyIdx--;
+  }
+
+  const cursorEl = showCursor ? (
+    <span
+      aria-hidden="true"
+      className="inline-block w-[7px] h-[14px] align-middle ml-1 rounded-[2px] bg-emerald-400/90 animate-chat-cursor"
+    />
+  ) : null;
+
+  return lines.map((line, idx) => {
     const trimmed = line.trim();
-    if (!trimmed) return <div key={idx} className="h-2" />;
+    const isCursorLine = showCursor && idx === lastNonEmptyIdx;
+    if (!trimmed) {
+      if (isCursorLine) {
+        return (
+          <p key={idx} className="text-sm text-neutral-300 leading-relaxed">
+            {cursorEl}
+          </p>
+        );
+      }
+      return <div key={idx} className="h-2" />;
+    }
     if (trimmed.startsWith("### ")) {
       return (
         <h3 key={idx} className="text-base font-semibold text-white tracking-tight pt-1">
           {trimmed.slice(4)}
+          {isCursorLine && cursorEl}
         </h3>
       );
     }
@@ -57,21 +83,83 @@ function renderFormattedLines(content: string) {
       return (
         <div key={idx} className="flex gap-2 text-sm text-neutral-300 leading-relaxed pl-1">
           <span className="text-neutral-500 select-none">•</span>
-          <span>{rendered}</span>
+          <span>
+            {rendered}
+            {isCursorLine && cursorEl}
+          </span>
         </div>
       );
     }
     return (
       <p key={idx} className="text-sm text-neutral-300 leading-relaxed">
         {rendered}
+        {isCursorLine && cursorEl}
       </p>
     );
   });
 }
 
-export function ChatMessageCard({ message }: ChatMessageCardProps) {
+export function ChatMessageCard({
+  message,
+  animateTyping = false,
+  onTypingComplete,
+}: ChatMessageCardProps) {
   const [showProvenance, setShowProvenance] = useState(false);
   const [downloading, setDownloading] = useState<"pdf" | "excel" | null>(null);
+  const [revealedChars, setRevealedChars] = useState<number>(() =>
+    animateTyping && message.role === "assistant" ? 0 : message.content.length,
+  );
+
+  useEffect(() => {
+    if (!animateTyping || message.role !== "assistant") {
+      setRevealedChars(message.content.length);
+      return;
+    }
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion || message.content.length === 0) {
+      setRevealedChars(message.content.length);
+      onTypingComplete?.();
+      return;
+    }
+
+    const totalLen = message.content.length;
+    // Duração adaptativa entre ~0.9s e ~3.4s para fluidez estilo ChatGPT/Claude
+    const durationMs = Math.min(Math.max(totalLen * 4.5, 900), 3400);
+    const startedAt = performance.now();
+    let rafId = 0;
+
+    const step = (now: number) => {
+      const progress = Math.min((now - startedAt) / durationMs, 1);
+      // Curva ligeiramente suavizada no final
+      const eased = 1 - Math.pow(1 - progress, 1.35);
+      let nextChars = Math.max(1, Math.floor(eased * totalLen));
+
+      // Avança até ao fim da palavra atual quando próximo de espaço para evitar quebras bruscas
+      if (nextChars < totalLen) {
+        const nextSpace = message.content.indexOf(" ", nextChars);
+        if (nextSpace !== -1 && nextSpace - nextChars <= 6) {
+          nextChars = nextSpace + 1;
+        }
+      }
+
+      setRevealedChars(nextChars);
+      if (progress < 1) {
+        rafId = window.requestAnimationFrame(step);
+      } else {
+        setRevealedChars(totalLen);
+        onTypingComplete?.();
+      }
+    };
+
+    rafId = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [animateTyping, message.content, message.id, message.role, onTypingComplete]);
+
+  const isTyping = animateTyping && message.role === "assistant" && revealedChars < message.content.length;
+  const visibleContent = isTyping ? message.content.slice(0, revealedChars) : message.content;
 
   if (message.role === "user") {
     return (
@@ -170,10 +258,10 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
           </div>
         )}
 
-        <div className="space-y-1">{renderFormattedLines(message.content)}</div>
+        <div className="space-y-1">{renderFormattedLines(visibleContent, isTyping)}</div>
 
-        {message.report_bundle && (
-          <div className="flex flex-wrap items-center gap-2 pt-1">
+        {!isTyping && message.report_bundle && (
+          <div className="flex flex-wrap items-center gap-2 pt-1 animate-chat-step-enter">
             <button
               type="button"
               disabled={downloading !== null}
@@ -198,8 +286,8 @@ export function ChatMessageCard({ message }: ChatMessageCardProps) {
           </div>
         )}
 
-        {(message.sources_json.length > 0 || (message.plan && message.plan.length > 0)) && (
-          <div className="pt-1">
+        {!isTyping && (message.sources_json.length > 0 || (message.plan && message.plan.length > 0)) && (
+          <div className="pt-1 animate-chat-step-enter">
             <button
               type="button"
               onClick={() => setShowProvenance((s) => !s)}

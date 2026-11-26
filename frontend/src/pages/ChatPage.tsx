@@ -8,6 +8,8 @@ import type { MessageItem, UserProfile } from "@/types/api";
 interface ChatPageProps {
   user: UserProfile;
   messages: MessageItem[];
+  animatingMessageId: string | null;
+  onTypingComplete: () => void;
   isSending: boolean;
   error: string | null;
   onSendMessage: (message: string) => Promise<void>;
@@ -18,6 +20,8 @@ interface ChatPageProps {
 export function ChatPage({
   user,
   messages,
+  animatingMessageId,
+  onTypingComplete,
   isSending,
   error,
   onSendMessage,
@@ -25,11 +29,22 @@ export function ChatPage({
   onOpenExcelImport,
 }: ChatPageProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const threadRef = useRef<HTMLDivElement>(null);
   const canUploadExcel = user.permissions.includes("import_excel");
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, isSending]);
+
+  useEffect(() => {
+    if (!animatingMessageId || !threadRef.current) return;
+    const el = threadRef.current;
+    const observer = new ResizeObserver(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [animatingMessageId]);
 
   if (messages.length === 0) {
     return (
@@ -54,9 +69,14 @@ export function ChatPage({
   return (
     <div className="flex-1 flex flex-col h-[calc(100vh-3.5rem)] lg:h-screen">
       <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div ref={threadRef} className="max-w-3xl mx-auto space-y-6">
           {messages.map((msg) => (
-            <ChatMessageCard key={msg.id} message={msg} />
+            <ChatMessageCard
+              key={msg.id}
+              message={msg}
+              animateTyping={msg.id === animatingMessageId}
+              onTypingComplete={msg.id === animatingMessageId ? onTypingComplete : undefined}
+            />
           ))}
           {isSending && <AgentThinkingIndicator />}
           {error && (

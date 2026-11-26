@@ -16,6 +16,7 @@ export function App() {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageItem[]>([]);
+  const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -44,6 +45,7 @@ export function App() {
 
   const handleSelectConversation = async (id: string) => {
     setActiveConversationId(id);
+    setAnimatingMessageId(null);
     setChatError(null);
     try {
       const history = await api.listMessages(id);
@@ -55,6 +57,7 @@ export function App() {
 
   const handleNewConversation = () => {
     setActiveConversationId(null);
+    setAnimatingMessageId(null);
     setMessages([]);
     setChatError(null);
   };
@@ -87,6 +90,7 @@ export function App() {
         needs_clarification: res.needs_clarification,
       };
       setMessages((prev) => [...prev, assistantMsg]);
+      setAnimatingMessageId(assistantMsg.id);
       void loadConversations();
     } catch (err) {
       setChatError(err instanceof ApiError ? err.message : "Erro ao comunicar com o agente.");
@@ -94,6 +98,10 @@ export function App() {
       setIsSending(false);
     }
   };
+
+  const handleTypingComplete = useCallback(() => {
+    setAnimatingMessageId(null);
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -104,6 +112,7 @@ export function App() {
     setUser(null);
     setConversations([]);
     setMessages([]);
+    setAnimatingMessageId(null);
     setActiveConversationId(null);
   };
 
@@ -158,6 +167,8 @@ export function App() {
           <ChatPage
             user={user}
             messages={messages}
+            animatingMessageId={animatingMessageId}
+            onTypingComplete={handleTypingComplete}
             isSending={isSending}
             error={chatError}
             onSendMessage={handleSendMessage}

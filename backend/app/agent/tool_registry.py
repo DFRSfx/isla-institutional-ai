@@ -72,7 +72,11 @@ OPENAI_TOOL_SCHEMAS: list[dict[str, Any]] = [
                     },
                     "researcher_id": {
                         "type": ["string", "null"],
-                        "description": "UUID do docente (apenas após correspondência exata ou próprio utilizador).",
+                        "description": (
+                            "Identificador exato do docente: Ciência Vitae ID (ex.: C21A-91DC-B90B), "
+                            "email institucional (ex.: nome@islagaia.pt) ou UUID interno "
+                            "(apenas após correspondência exata, confirmação do utilizador ou próprio utilizador)."
+                        ),
                     },
                     "compare_year_a": {
                         "type": ["integer", "null"],
@@ -159,15 +163,42 @@ def execute_registered_tool(
         raw_res_id = arguments.get("researcher_id")
         researcher_uuid: UUID | None = None
         if raw_res_id:
+            raw_str = str(raw_res_id).strip()
             try:
-                researcher_uuid = UUID(str(raw_res_id))
+                researcher_uuid = UUID(raw_str)
             except ValueError:
-                return ToolExecutionOutput(
-                    tool_name=name,
-                    llm_payload={"error": "researcher_id inválido (deve ser UUID)."},
-                    sources=[],
-                    audit_meta={"tool": name, "error": "invalid_researcher_id"},
-                )
+                lookup = find_researcher(ctx, raw_str)
+                if lookup["access_denied"]:
+                    return ToolExecutionOutput(
+                        tool_name=name,
+                        llm_payload={
+                            "access_denied": True,
+                            "reason": lookup.get("reason")
+                            or "Sem permissão para consultar dados individuais de outros docentes.",
+                            "sources": lookup.get("sources", []),
+                        },
+                        sources=lookup.get("sources", []),
+                        audit_meta={"tool": name, "access_denied": True},
+                    )
+                if len(lookup["matches"]) == 1:
+                    researcher_uuid = UUID(lookup["matches"][0]["id"])
+                else:
+                    return ToolExecutionOutput(
+                        tool_name=name,
+                        llm_payload={
+                            "error": (
+                                "Identificador do docente não confirmado ou não encontrado. "
+                                "Use o Ciência Vitae ID ou email institucional exato do docente."
+                            ),
+                            "requires_confirmation": bool(lookup["hypotheses"]),
+                            "hypotheses": [
+                                {k: v for k, v in h.items() if k != "id"}
+                                for h in lookup["hypotheses"]
+                            ],
+                        },
+                        sources=lookup.get("sources", []),
+                        audit_meta={"tool": name, "error": "unconfirmed_researcher_identifier"},
+                    )
 
         cy_a = arguments.get("compare_year_a")
         cy_b = arguments.get("compare_year_b")

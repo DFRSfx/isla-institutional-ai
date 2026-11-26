@@ -306,3 +306,50 @@ def test_strip_qwen3_think_tags_and_hide_uuid_on_name_hypotheses(db_session: Ses
     assert len(out.llm_payload["hypotheses"]) == 1
     assert "id" not in out.llm_payload["hypotheses"][0]
     assert out.llm_payload["hypotheses"][0]["requires_confirmation"] is True
+
+
+def test_report_tool_accepts_ciencia_vitae_id_and_email_with_rbac(db_session: Session) -> None:
+    _seed_data(db_session)
+    direction = make_user(db_session, email="direcao@islagaia.pt", role=UserRole.DIRECTION)
+    faculty = make_user(db_session, email="ana@islagaia.pt", role=UserRole.FACULTY)
+
+    # 1. Direção pode passar Ciência Vitae ID diretamente e obter os KPIs exatos
+    by_cv = execute_registered_tool(
+        name="get_scientific_production_report_data",
+        arguments={"researcher_id": "CCCC-2222-DDDD"},
+        ctx=ToolContext(db=db_session, user=direction),
+        report_generator=ReportGeneratorService(),
+    )
+    assert by_cv.analytics_summary is not None
+    assert by_cv.analytics_summary["kpis"]["publications"] == 1
+
+    # 2. Email institucional exato também funciona
+    by_email = execute_registered_tool(
+        name="get_scientific_production_report_data",
+        arguments={"researcher_id": "bruno.costa@isla.test"},
+        ctx=ToolContext(db=db_session, user=direction),
+        report_generator=ReportGeneratorService(),
+    )
+    assert by_email.analytics_summary is not None
+    assert by_email.analytics_summary["kpis"]["publications"] == 1
+
+    # 3. Docente continua bloqueado (RBAC) ao passar Ciência Vitae ID de outro docente
+    denied = execute_registered_tool(
+        name="get_scientific_production_report_data",
+        arguments={"researcher_id": "CCCC-2222-DDDD"},
+        ctx=ToolContext(db=db_session, user=faculty),
+        report_generator=ReportGeneratorService(),
+    )
+    assert denied.llm_payload.get("access_denied") is True
+    assert denied.analytics_summary is None
+
+    # 4. Nome solto sem confirmação continua a ser recusado (sem UUID exposto)
+    unconfirmed = execute_registered_tool(
+        name="get_scientific_production_report_data",
+        arguments={"researcher_id": "Bruno Costa"},
+        ctx=ToolContext(db=db_session, user=direction),
+        report_generator=ReportGeneratorService(),
+    )
+    assert "error" in unconfirmed.llm_payload
+    assert unconfirmed.llm_payload.get("requires_confirmation") is True
+    assert unconfirmed.analytics_summary is None

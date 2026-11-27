@@ -10,6 +10,7 @@ from app.agent.tools import (
     get_scientific_production_report_data,
 )
 from app.services.report_generator import ReportGeneratorService
+from app.services.semantic_search import EmbeddingClientError, search_publications_semantic
 
 OPENAI_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
@@ -95,6 +96,46 @@ OPENAI_TOOL_SCHEMAS: list[dict[str, Any]] = [
                         "description": "Título opcional para o relatório PDF/Excel.",
                     },
                 },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_publications_semantic",
+            "description": (
+                "Pesquisa semântica (RAG) por tema, tópico científico ou área de investigação "
+                "nas publicações do ISLA (ex.: 'quem investiga inteligência artificial na educação', "
+                "'artigos sobre cibersegurança', 'publicações sobre sustentabilidade'). "
+                "Usar APENAS para descoberta temática; para contagens exatas, KPIs ou relatórios "
+                "usar sempre `get_scientific_production_report_data`."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Tema, palavras-chave ou frase descritiva do assunto científico a pesquisar.",
+                    },
+                    "school_code": {
+                        "type": ["string", "null"],
+                        "description": "Filtro opcional por escola (ex.: 'EST' ou 'ESG').",
+                    },
+                    "year_from": {
+                        "type": ["integer", "null"],
+                        "description": "Ano inicial opcional (inclusivo).",
+                    },
+                    "year_to": {
+                        "type": ["integer", "null"],
+                        "description": "Ano final opcional (inclusivo).",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Número máximo de publicações semelhantes a devolver (1 a 15, padrão 8).",
+                    },
+                },
+                "required": ["query"],
                 "additionalProperties": False,
             },
         },
@@ -323,6 +364,46 @@ def execute_registered_tool(
             },
             analytics_summary=analytics_summary,
             report_bundle=report_bundle,
+        )
+
+    if name == "search_publications_semantic":
+        query = str(arguments.get("query") or "").strip()
+        if not query:
+            return ToolExecutionOutput(
+                tool_name=name,
+                llm_payload={"error": "Parâmetro 'query' obrigatório para pesquisa semântica."},
+                sources=[],
+                audit_meta={"tool": name, "error": "empty_query"},
+            )
+        school_code = arguments.get("school_code")
+        year_from = arguments.get("year_from")
+        year_to = arguments.get("year_to")
+        top_k = arguments.get("top_k", 8)
+        try:
+            res = search_publications_semantic(
+                ctx,
+                query,
+                school_code=str(school_code) if school_code else None,
+                year_from=int(year_from) if year_from is not None else None,
+                year_to=int(year_to) if year_to is not None else None,
+                top_k=int(top_k) if top_k is not None else 8,
+            )
+        except EmbeddingClientError as exc:
+            return ToolExecutionOutput(
+                tool_name=name,
+                llm_payload={"error": str(exc)},
+                sources=[],
+                audit_meta={"tool": name, "error": "embedding_error"},
+            )
+        return ToolExecutionOutput(
+            tool_name=name,
+            llm_payload=res,
+            sources=res.get("sources", []),
+            audit_meta={
+                "tool": name,
+                "query": query,
+                "matches": len(res.get("matches", [])),
+            },
         )
 
     return ToolExecutionOutput(

@@ -8,7 +8,7 @@ import {
   Upload,
 } from "lucide-react";
 
-import { ApiError, api } from "@/services/api";
+import { ApiError, api, type EmbeddingIndexStatus } from "@/services/api";
 import type {
   AuditLogItem,
   ExcelImportRecord,
@@ -39,6 +39,7 @@ export function AdminPage({ user, mode }: AdminPageProps) {
   const [preview, setPreview] = useState<ExcelPreviewResponse | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingIndexStatus | null>(null);
 
   const refreshData = useCallback(async () => {
     try {
@@ -47,14 +48,16 @@ export function AdminPage({ user, mode }: AdminPageProps) {
       } else {
         setSnapshots(await api.listSnapshots());
         if (isAdmin) {
-          const [imp, usrs, pending] = await Promise.all([
+          const [imp, usrs, pending, emb] = await Promise.all([
             api.listExcelImports(),
             api.listUsers(),
             api.listPendingAuthorMatches(),
+            api.getEmbeddingsStatus(),
           ]);
           setImports(imp);
           setUsersList(usrs);
           setPendingMatches(pending);
+          setEmbeddingStatus(emb);
         }
       }
     } catch (err) {
@@ -83,6 +86,26 @@ export function AdminPage({ user, mode }: AdminPageProps) {
       setFeedback({
         type: "err",
         text: err instanceof ApiError ? err.message : "Erro na sincronização do Portal.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleRebuildEmbeddings = async () => {
+    setBusy("embeddings");
+    setFeedback(null);
+    try {
+      const res = await api.rebuildEmbeddings(false);
+      setEmbeddingStatus(res);
+      setFeedback({
+        type: "ok",
+        text: `Índice semântico (${res.model}): ${res.indexed_publications}/${res.total_publications} publicações (${res.coverage_pct}%) — ${res.newly_indexed ?? 0} novas, ${res.skipped_up_to_date ?? 0} já atualizadas.`,
+      });
+    } catch (err) {
+      setFeedback({
+        type: "err",
+        text: err instanceof ApiError ? err.message : "Erro ao indexar o índice semântico.",
       });
     } finally {
       setBusy(null);
@@ -331,6 +354,40 @@ export function AdminPage({ user, mode }: AdminPageProps) {
                 className="px-3.5 py-2 rounded-lg bg-neutral-950 border border-neutral-700 text-neutral-200 text-xs font-medium hover:bg-neutral-800 disabled:opacity-50"
               >
                 Forçar atualização (nocache=1)
+              </button>
+            </div>
+            <div className="pt-3 border-t border-neutral-800 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-semibold text-white">Índice semântico (RAG local)</h3>
+                  <p className="text-[11px] text-neutral-400 mt-0.5">
+                    Embeddings{" "}
+                    <code className="font-mono text-emerald-400">
+                      {embeddingStatus?.model ?? "nomic-embed-text"}
+                    </code>{" "}
+                    no Ollama local para pesquisa por tema.
+                  </p>
+                </div>
+                <span className="text-[11px] font-mono text-neutral-300 shrink-0">
+                  {embeddingStatus
+                    ? `${embeddingStatus.indexed_publications}/${embeddingStatus.total_publications} (${embeddingStatus.coverage_pct}%)`
+                    : "—"}
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-neutral-800 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-[width] duration-500"
+                  style={{ width: `${embeddingStatus?.coverage_pct ?? 0}%` }}
+                />
+              </div>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void handleRebuildEmbeddings()}
+                className="px-3.5 py-2 rounded-lg bg-neutral-950 border border-neutral-700 text-neutral-200 text-xs font-medium hover:bg-neutral-800 disabled:opacity-50 flex items-center gap-2"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${busy === "embeddings" ? "animate-spin" : ""}`} />
+                {busy === "embeddings" ? "A indexar..." : "Atualizar índice semântico"}
               </button>
             </div>
           </div>

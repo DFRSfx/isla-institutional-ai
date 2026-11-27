@@ -8,7 +8,13 @@ from app.database.session import get_db
 from app.models.ingestion import SourceSnapshot
 from app.models.user import User
 from app.schemas import PortalSyncRequest, SourceSnapshotResponse
+from app.services.audit import record_audit_log
 from app.services.portal_api import PortalApiError, PortalSyncService
+from app.services.semantic_search import (
+    EmbeddingClientError,
+    get_embedding_index_status,
+    index_publication_embeddings,
+)
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -59,3 +65,41 @@ def list_snapshots(
         select(SourceSnapshot).order_by(desc(SourceSnapshot.synced_at)).limit(bounded_limit)
     ).all()
     return [SourceSnapshotResponse.model_validate(s) for s in snapshots]
+
+
+@router.get("/embeddings/status")
+def embeddings_status(
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return get_embedding_index_status(db)
+
+
+@router.post("/embeddings")
+def rebuild_embeddings(
+    request: Request,
+    force: bool = False,
+    user: User = Depends(require_permission(Permission.SYNC_PORTAL_API)),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    try:
+        result = index_publication_embeddings(db, force=force)
+    except EmbeddingClientError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    record_audit_log(
+        db,
+        action="rag.embeddings.index",
+        resource_type="publication_embeddings",
+        resource_id=str(result["model"]),
+        user_id=user.id,
+        user_role=user.role,
+        status="success",
+        details=result,
+        ip_address=request.client.host if request.client else None,
+    )
+    db.commit()
+    return result

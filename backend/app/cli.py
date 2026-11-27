@@ -11,6 +11,7 @@ from app.database.session import Base, SessionLocal, engine
 from app.models.user import User
 from app.services.maintenance import cleanup_expired_data
 from app.services.portal_api import PortalSyncService
+from app.services.semantic_search import index_publication_embeddings
 
 
 def create_user_cmd(email: str, password: str, full_name: str, role: str) -> None:
@@ -53,6 +54,15 @@ def cleanup_retention_cmd(days: int | None) -> None:
         )
 
 
+def index_embeddings_cmd(force: bool) -> None:
+    with SessionLocal() as db:
+        res = index_publication_embeddings(db, force=force)
+        print(
+            f"Índice semântico ({res['model']}): {res['indexed_publications']}/{res['total_publications']} "
+            f"({res['coverage_pct']}%) | +{res['newly_indexed']} novos, {res['skipped_up_to_date']} atualizados."
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="CLI ISLA Institutional AI Agent")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -69,6 +79,9 @@ def main() -> None:
     cr = sub.add_parser("cleanup-retention", help="Aplicar política de retenção RGPD")
     cr.add_argument("--days", type=int, default=None, help="Sobrescrever CONVERSATION_RETENTION_DAYS")
 
+    ie = sub.add_parser("index-embeddings", help="Indexar embeddings semânticos locais (RAG)")
+    ie.add_argument("--force", action="store_true", help="Reindexar todas as publicações")
+
     args = parser.parse_args()
     if args.command == "create-user":
         create_user_cmd(args.email, args.password, args.name, args.role)
@@ -76,6 +89,8 @@ def main() -> None:
         sync_portal_cmd(args.nocache)
     elif args.command == "cleanup-retention":
         cleanup_retention_cmd(args.days)
+    elif args.command == "index-embeddings":
+        index_embeddings_cmd(args.force)
 
 
 if __name__ == "__main__":

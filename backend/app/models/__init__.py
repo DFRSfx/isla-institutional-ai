@@ -1,5 +1,6 @@
 from app.models.audit import AuditLog
 from app.models.conversation import Conversation, Message
+from app.models.embedding import PublicationEmbedding
 from app.models.ingestion import ExcelImport, SourceSnapshot
 from app.models.publication import Publication, PublicationAuthor
 from app.models.researcher import Researcher
@@ -13,6 +14,7 @@ __all__ = [
     "Message",
     "Publication",
     "PublicationAuthor",
+    "PublicationEmbedding",
     "Researcher",
     "School",
     "SourceSnapshot",

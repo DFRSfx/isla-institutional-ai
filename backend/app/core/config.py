@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     llm_max_tool_steps: int = 5
     llm_max_tokens: int = 900
     llm_reasoning_effort: Literal["none", "low", "medium", "high", "default"] = "none"
+    embedding_model: str = "nomic-embed-text"
+    embedding_timeout_seconds: float = 45.0
 
     @field_validator("auth_mode", "llm_provider", "llm_reasoning_effort", mode="before")
     @classmethod

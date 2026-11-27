@@ -12,6 +12,15 @@ import type {
   UserProfile,
 } from "@/types/api";
 
+export interface EmbeddingIndexStatus {
+  model: string;
+  total_publications: number;
+  indexed_publications: number;
+  coverage_pct: number;
+  newly_indexed?: number;
+  skipped_up_to_date?: number;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -199,6 +208,16 @@ export const api = {
 
   listSnapshots(): Promise<SourceSnapshot[]> {
     return request<SourceSnapshot[]>("/api/v1/sync/snapshots?limit=20");
+  },
+
+  getEmbeddingsStatus(): Promise<EmbeddingIndexStatus> {
+    return request<EmbeddingIndexStatus>("/api/v1/sync/embeddings/status");
+  },
+
+  rebuildEmbeddings(force = false): Promise<EmbeddingIndexStatus> {
+    return request<EmbeddingIndexStatus>(`/api/v1/sync/embeddings?force=${force}`, {
+      method: "POST",
+    });
   },
 
   previewExcel(file: File, sheetName?: string): Promise<ExcelPreviewResponse> {

@@ -107,6 +107,7 @@ export function ChatMessageCard({
   onTypingComplete,
 }: ChatMessageCardProps) {
   const [showProvenance, setShowProvenance] = useState(false);
+  const [showAllYears, setShowAllYears] = useState(false);
   const [downloading, setDownloading] = useState<"pdf" | "excel" | null>(null);
   const [revealedChars, setRevealedChars] = useState<number>(() =>
     animateTyping && !isStreaming && message.role === "assistant" ? 0 : message.content.length,
@@ -178,7 +179,9 @@ export function ChatMessageCard({
 
   const kpis = message.analytics_summary?.kpis;
   const annual = message.analytics_summary?.annual_evolution ?? [];
-  const maxAnnual = Math.max(...annual.map((a) => a.publications), 1);
+  const hasManyYears = annual.length > 12;
+  const visibleAnnual = hasManyYears && !showAllYears ? annual.slice(-12) : annual;
+  const maxAnnual = Math.max(...visibleAnnual.map((a) => a.publications), 1);
 
   const handleDownload = async (fmt: "pdf" | "excel") => {
     if (!message.report_bundle) return;
@@ -228,37 +231,53 @@ export function ChatMessageCard({
         )}
 
         {annual.length > 1 && (
-          <div className="rounded-xl bg-neutral-900/70 border border-neutral-800/80 p-3.5">
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-[11px] font-mono uppercase tracking-wider text-neutral-400">
-                Evolução Anual
-              </span>
+          <div className="rounded-xl bg-neutral-900/70 border border-neutral-800/80 p-3.5 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono uppercase tracking-wider text-neutral-400">
+                  Evolução Anual
+                </span>
+                {hasManyYears && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllYears((v) => !v)}
+                    className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
+                  >
+                    {showAllYears ? "Últimos 12 anos" : `Ver todos (${annual.length} anos)`}
+                  </button>
+                )}
+              </div>
               <span className="text-[11px] font-mono text-neutral-500">
                 Total vs Indexadas (Scopus/WoS)
               </span>
             </div>
-            <div className="flex items-end gap-2 h-24 pt-2">
-              {annual.map((point) => {
-                const totalPct = Math.max((point.publications / maxAnnual) * 100, 4);
-                const idxPct = Math.max((point.indexed_scopus_or_wos / maxAnnual) * 100, 0);
-                return (
-                  <div key={point.year} className="flex-1 flex flex-col items-center gap-1 h-full">
-                    <div className="w-full flex-1 flex items-end justify-center gap-1">
-                      <div
-                        className="w-3 rounded-t bg-neutral-200 animate-chat-bar-grow"
-                        style={{ height: `${totalPct}%` }}
-                        title={`${point.year}: ${point.publications} publicações`}
-                      />
-                      <div
-                        className="w-3 rounded-t bg-emerald-500/80 animate-chat-bar-grow"
-                        style={{ height: `${idxPct}%`, animationDelay: "80ms" }}
-                        title={`${point.year}: ${point.indexed_scopus_or_wos} indexadas`}
-                      />
+            <div className="overflow-x-auto pb-1">
+              <div
+                className="flex items-end gap-2 h-24 pt-2"
+                style={{ minWidth: visibleAnnual.length > 12 ? `${visibleAnnual.length * 40}px` : undefined }}
+              >
+                {visibleAnnual.map((point) => {
+                  const totalPct = Math.max((point.publications / maxAnnual) * 100, 4);
+                  const idxPct = Math.max((point.indexed_scopus_or_wos / maxAnnual) * 100, 0);
+                  return (
+                    <div key={point.year} className="flex-1 min-w-[30px] flex flex-col items-center gap-1 h-full">
+                      <div className="w-full flex-1 flex items-end justify-center gap-1">
+                        <div
+                          className="w-2.5 rounded-t bg-neutral-200 animate-chat-bar-grow"
+                          style={{ height: `${totalPct}%` }}
+                          title={`${point.year}: ${point.publications} publicações`}
+                        />
+                        <div
+                          className="w-2.5 rounded-t bg-emerald-500/80 animate-chat-bar-grow"
+                          style={{ height: `${idxPct}%`, animationDelay: "80ms" }}
+                          title={`${point.year}: ${point.indexed_scopus_or_wos} indexadas`}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-neutral-400">{point.year}</span>
                     </div>
-                    <span className="text-[10px] font-mono text-neutral-400">{point.year}</span>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}

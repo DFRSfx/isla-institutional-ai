@@ -205,6 +205,34 @@ def build_execution_plan(
             steps=steps,
         )
 
+    # Caso 2B: pesquisa semântica / temática (RAG) — não confundir com relatório institucional global
+    semantic_triggers = (
+        "investigam ",
+        "investiga ",
+        "artigos sobre",
+        "publicacoes sobre",
+        "trabalhos sobre",
+        "relacionad",
+        "topico",
+        "tema ",
+        "temas ",
+        "semelhant",
+        "quem trabalha",
+        "quem pesquisa",
+    )
+    is_analytic_report = any(
+        kw in norm
+        for kw in ("relatorio", "quantas", "total", "evolucao", "comparac", "ranking", "mais produtivos", "pdf", "excel")
+    )
+    if any(tr in norm for tr in semantic_triggers) and not is_analytic_report:
+        return AgentPlan(
+            intent="semantic_search",
+            school_code=school_match.group(1).upper() if school_match else None,
+            year_from=year_from,
+            year_to=year_to,
+            steps=["Executar pesquisa semântica (RAG local) nas publicações indexadas"],
+        )
+
     # Caso 3: análise/relatório por escola ou institucional com âmbito suficientemente claro
     school_code = school_match.group(1).upper() if school_match else None
     has_clear_scope = bool(school_code or is_institutional_wide or year_from or compare_years)
@@ -420,6 +448,32 @@ class AgentOrchestrator:
             return (
                 out.llm_payload,
                 ["Router rápido -> consultar estado das fontes sincronizadas"],
+                [out.audit_meta],
+                out.sources,
+                None,
+                None,
+            )
+
+        if plan.intent == "semantic_search":
+            out = execute_registered_tool(
+                name="search_publications_semantic",
+                arguments={
+                    "query": user_message,
+                    "school_code": plan.school_code,
+                    "year_from": plan.year_from,
+                    "year_to": plan.year_to,
+                    "top_k": 8,
+                },
+                ctx=ctx,
+                report_generator=self.report_generator,
+                reports_dir=self.reports_dir,
+                reference_year=reference_year,
+            )
+            if out.llm_payload.get("error"):
+                return None
+            return (
+                out.llm_payload,
+                ["Router rápido -> pesquisa semântica (RAG local) nas publicações"],
                 [out.audit_meta],
                 out.sources,
                 None,

@@ -88,3 +88,12 @@ def test_semantic_rag_indexing_search_and_rbac(db_session: Session) -> None:
     )
     assert len(res_fac["matches"]) == 2
     assert res_fac["top_topic_researchers"] == []
+
+
+def test_thematic_query_routes_to_semantic_search_not_school_report() -> None:
+    from app.agent.graph import build_execution_plan
+
+    plan = build_execution_plan(
+        "Que docentes ou artigos do ISLA investigam inteligência artificial na educação?"
+    )
+    assert plan.intent == "semantic_search"

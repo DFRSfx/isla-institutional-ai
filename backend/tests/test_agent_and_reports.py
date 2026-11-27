@@ -340,10 +340,10 @@ def test_agent_resolves_unique_name_and_requires_confirmation_for_ambiguous_name
     direction = make_user(db_session, email="direcao@islagaia.pt", role=UserRole.DIRECTION)
 
     with _build_isolated_client(db_session, tmp_path) as client:
-        # 1. Nome único inequívoco ('Bruno Costa') resolve imediatamente e devolve KPIs
+        # 1. Nome único inequívoco ('Bruno Costa' ou abreviado/minúsculas 'prof bruno') resolve imediatamente
         unique_resp = client.post(
             "/api/v1/chat",
-            json={"message": "Gera um relatório sobre o docente Bruno Costa"},
+            json={"message": "quantas publicações tem o prof bruno?"},
             headers=auth_headers(direction),
         )
         assert unique_resp.status_code == 200

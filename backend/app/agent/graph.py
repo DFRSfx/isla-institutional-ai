@@ -100,17 +100,61 @@ def _extract_timeframe(
     return None, None, compare_years
 
 
+_TRAILING_STOPWORDS = frozenset(
+    {
+        "no",
+        "na",
+        "nos",
+        "nas",
+        "em",
+        "de",
+        "do",
+        "da",
+        "dos",
+        "das",
+        "total",
+        "isla",
+        "est",
+        "esg",
+        "tem",
+        "com",
+        "para",
+        "por",
+        "sobre",
+        "este",
+        "ano",
+        "anos",
+        "ultimos",
+        "últimos",
+    }
+)
+
+
+def _clean_extracted_name(raw_candidate: str) -> str | None:
+    tokens = raw_candidate.strip(" .,;:?!\"'()").split()
+    while tokens and normalize_text(tokens[-1]) in _TRAILING_STOPWORDS:
+        tokens.pop()
+    while tokens and tokens[-1].isdigit():
+        tokens.pop()
+    candidate = " ".join(tokens).strip()
+    if len(candidate) < 2:
+        return None
+    if normalize_text(candidate) in {"est", "esg", "isla", "mais produtivos", "docentes", "investigadores"}:
+        return None
+    return candidate
+
+
 def _extract_researcher_name_hint(raw_text: str) -> str | None:
     patterns = [
-        r"(?:docente|investigador(?:a)?|professor(?:a)?)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:da|de|do|dos|das|e|[A-ZÀ-Ú][a-zà-ú]+)){0,4})",
-        r"(?:publica[çc][õo]es\s+d[eo]a?\s+)([A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:da|de|do|dos|das|e|[A-ZÀ-Ú][a-zà-ú]+)){0,4})",
+        r"(?:docente|investigador(?:a)?|professor(?:a)?|prof\.?|doutor(?:a)?|dr\.?)\s+([A-Za-zÀ-ú]{2,}(?:\s+(?:da|de|do|dos|das|e|[A-Za-zÀ-ú]{2,})){0,4})",
+        r"(?:publica[çc][õo]es\s+d[eo]a?\s+)([A-Za-zÀ-ú]{2,}(?:\s+(?:da|de|do|dos|das|e|[A-Za-zÀ-ú]{2,})){0,4})",
     ]
     for pat in patterns:
-        match = re.search(pat, raw_text)
+        match = re.search(pat, raw_text, flags=re.IGNORECASE)
         if match:
-            candidate = match.group(1).strip(" .,;:?!")
-            if normalize_text(candidate) not in {"est", "esg", "isla", "mais produtivos"}:
-                return candidate
+            cleaned = _clean_extracted_name(match.group(1))
+            if cleaned:
+                return cleaned
     return None
 
 
@@ -386,8 +430,9 @@ class AgentOrchestrator:
         if not final_answer:
             raise LLMClientError("LLM não produziu resposta final dentro do limite de passos.")
 
-        # Guardrail anti-alucinação: se o pedido tem âmbito analítico concreto e o LLM
-        # respondeu sem invocar nenhuma ferramenta (ex.: inventou "0 publicações"),
+        # Guardrail anti-alucinação: se o pedido tem âmbito analítico concreto OU pede
+        # números/métricas e o LLM respondeu com números sem invocar nenhuma ferramenta
+        # (ex.: reciclou números da mensagem anterior ou inventou "0 publicações"),
         # recusa a resposta não fundamentada e ativa o fallback determinístico em SQL.
         if len(tool_calls_meta) == 0:
             det_plan = build_execution_plan(
@@ -395,7 +440,15 @@ class AgentOrchestrator:
                 previous_scope=_extract_last_scope(prev_messages),
                 reference_year=reference_year,
             )
-            if det_plan.intent != "clarify" and "?" not in final_answer:
+            norm_u = normalize_text(user_message)
+            asks_metrics = any(
+                kw in norm_u
+                for kw in ("quantas", "quantos", "total", "publicac", "citac", "scopus", "wos", "quartil", "q1")
+            )
+            answer_has_numbers = bool(re.search(r"\b\d+\b", final_answer))
+            if (det_plan.intent != "clarify" and "?" not in final_answer) or (
+                asks_metrics and answer_has_numbers
+            ):
                 raise LLMClientError(
                     "LLM respondeu a pedido analítico sem invocar ferramentas estruturadas."
                 )

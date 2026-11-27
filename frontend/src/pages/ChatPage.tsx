@@ -11,6 +11,8 @@ interface ChatPageProps {
   animatingMessageId: string | null;
   streamingMessageId: string | null;
   liveStageLabel: string | null;
+  liveStages: string[];
+  liveThinking: string;
   onTypingComplete: () => void;
   isSending: boolean;
   error: string | null;
@@ -25,6 +27,8 @@ export function ChatPage({
   animatingMessageId,
   streamingMessageId,
   liveStageLabel,
+  liveStages,
+  liveThinking,
   onTypingComplete,
   isSending,
   error,
@@ -84,7 +88,11 @@ export function ChatPage({
             />
           ))}
           {isSending && !streamingMessageId && (
-            <AgentThinkingIndicator liveStageLabel={liveStageLabel} />
+            <AgentThinkingIndicator
+              liveStageLabel={liveStageLabel}
+              liveStages={liveStages}
+              liveThinking={liveThinking}
+            />
           )}
           {error && (
             <div className="rounded-lg border border-red-900/60 bg-red-950/50 px-4 py-2.5 text-xs text-red-200">

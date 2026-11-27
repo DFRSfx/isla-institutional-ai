@@ -1,171 +1,95 @@
 import { useEffect, useState } from "react";
-import {
-  BarChart3,
-  Check,
-  Database,
-  FileCheck2,
-  ShieldCheck,
-  Sparkles,
-} from "lucide-react";
-
-interface ThinkingStage {
-  label: string;
-  detail: string;
-  thresholdMs: number;
-  icon: typeof Sparkles;
-}
-
-const THINKING_STAGES: ThinkingStage[] = [
-  {
-    label: "A interpretar a pergunta e verificar permissões...",
-    detail: "Validação RBAC e contexto conversacional",
-    thresholdMs: 0,
-    icon: ShieldCheck,
-  },
-  {
-    label: "A consultar fontes estruturadas do ISLA...",
-    detail: "Portal Científico e base de investigadores",
-    thresholdMs: 2200,
-    icon: Database,
-  },
-  {
-    label: "A cruzar autores e validar cálculos em SQL...",
-    detail: "Agregação determinística e indicadores KPI",
-    thresholdMs: 5500,
-    icon: BarChart3,
-  },
-  {
-    label: "A redigir resposta com o modelo local ISLA...",
-    detail: "Síntese analítica em processamento local (RGPD)",
-    thresholdMs: 10500,
-    icon: Sparkles,
-  },
-  {
-    label: "A consolidar fontes e rastreabilidade...",
-    detail: "Verificação de proveniência e formatação final",
-    thresholdMs: 22000,
-    icon: FileCheck2,
-  },
-];
+import { Check, ChevronDown, ChevronRight } from "lucide-react";
 
 interface AgentThinkingIndicatorProps {
   liveStageLabel?: string | null;
+  liveStages?: string[];
+  liveThinking?: string;
 }
 
-export function AgentThinkingIndicator({ liveStageLabel }: AgentThinkingIndicatorProps = {}) {
+export function AgentThinkingIndicator({
+  liveStageLabel,
+  liveStages = [],
+  liveThinking = "",
+}: AgentThinkingIndicatorProps = {}) {
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     const startedAt = performance.now();
     const timer = window.setInterval(() => {
       setElapsedMs(performance.now() - startedAt);
-    }, 150);
+    }, 250);
     return () => window.clearInterval(timer);
   }, []);
 
-  let activeIdx = 0;
-  for (let i = 0; i < THINKING_STAGES.length; i++) {
-    if (elapsedMs >= THINKING_STAGES[i].thresholdMs) {
-      activeIdx = i;
-    }
-  }
-
-  const activeStage = THINKING_STAGES[activeIdx];
-  const ActiveIcon = activeStage.icon;
-  const displayLabel = liveStageLabel || activeStage.label;
-  const elapsedSeconds = (elapsedMs / 1000).toFixed(1);
+  const totalSec = Math.floor(elapsedMs / 1000);
+  const timeLabel = totalSec >= 60 ? `${Math.floor(totalSec / 60)}m ${totalSec % 60}s` : `${totalSec}s`;
+  const headline = liveStageLabel || "A processar pedido...";
+  const hasDetails = liveStages.length > 0 || Boolean(liveThinking.trim());
 
   return (
     <div
-      className="flex items-start gap-3 animate-chat-msg-enter"
+      className="pl-10 animate-chat-msg-enter"
       role="status"
       aria-live="polite"
-      aria-label={displayLabel}
+      aria-label={headline}
     >
-      {/* Avatar animado com aura subtil */}
-      <div className="relative h-7 w-7 shrink-0 mt-0.5">
-        <span
-          aria-hidden="true"
-          className="absolute inset-0 rounded-lg bg-emerald-500/25 blur-[5px] animate-chat-aura"
-        />
-        <div className="relative h-7 w-7 rounded-lg bg-neutral-900 border border-emerald-500/40 flex items-center justify-center">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-        </div>
-      </div>
+      <div className="inline-flex flex-col max-w-2xl rounded-xl bg-neutral-900/80 border border-neutral-800/80 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => hasDetails && setExpanded((v) => !v)}
+          className="flex items-center justify-between gap-4 px-3.5 py-2 text-left hover:bg-neutral-800/40 transition-colors"
+        >
+          <span
+            key={headline}
+            className="text-xs font-medium truncate animate-chat-shimmer-text animate-chat-step-enter"
+          >
+            {headline}
+          </span>
+          <span className="flex items-center gap-1.5 shrink-0 text-xs font-mono tabular-nums text-neutral-500">
+            <span>{timeLabel}</span>
+            {hasDetails &&
+              (expanded ? (
+                <ChevronDown className="w-3.5 h-3.5 text-neutral-500" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-neutral-500" />
+              ))}
+          </span>
+        </button>
 
-      {/* Cartão de progresso conversacional */}
-      <div className="flex-1 min-w-0 max-w-xl rounded-2xl bg-neutral-900/75 border border-neutral-800/90 px-4 py-3 space-y-3 shadow-sm">
-        {/* Cabeçalho com shimmer + typing dots + cronómetro */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <ActiveIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span
-              key={displayLabel}
-              className="text-xs font-medium truncate animate-chat-shimmer-text animate-chat-step-enter"
-            >
-              {displayLabel}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="inline-flex items-center gap-1" aria-hidden="true">
-              <span
-                className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-chat-dot"
-                style={{ animationDelay: "0ms" }}
-              />
-              <span
-                className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-chat-dot"
-                style={{ animationDelay: "180ms" }}
-              />
-              <span
-                className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-chat-dot"
-                style={{ animationDelay: "360ms" }}
-              />
-            </span>
-            <span className="text-[11px] font-mono tabular-nums text-neutral-500">
-              {elapsedSeconds}s
-            </span>
-          </div>
-        </div>
-
-        {/* Etapas percorridas até ao momento */}
-        <div className="space-y-1.5 border-l border-neutral-800 pl-3 ml-1.5">
-          {THINKING_STAGES.slice(0, activeIdx + 1).map((stage, idx) => {
-            const isDone = idx < activeIdx;
-            return (
-              <div
-                key={stage.label}
-                className="flex items-center gap-2 text-[11px] animate-chat-step-enter"
-              >
-                {isDone ? (
-                  <span className="h-3.5 w-3.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center shrink-0">
-                    <Check className="w-2.5 h-2.5 text-emerald-400" />
-                  </span>
-                ) : (
-                  <span className="h-3.5 w-3.5 rounded-full border border-emerald-400/60 flex items-center justify-center shrink-0">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  </span>
-                )}
-                <span className={isDone ? "text-neutral-500" : "text-neutral-300"}>
-                  {stage.detail}
-                </span>
+        {expanded && hasDetails && (
+          <div className="px-3.5 pb-3 pt-1.5 border-t border-neutral-800/70 space-y-2 text-xs">
+            {liveStages.length > 0 && (
+              <div className="space-y-1.5 border-l border-neutral-800 pl-3 ml-1">
+                {liveStages.map((step, idx) => {
+                  const isCurrent = idx === liveStages.length - 1;
+                  return (
+                    <div
+                      key={`${idx}-${step}`}
+                      className="flex items-center gap-2 text-[11px] animate-chat-step-enter"
+                    >
+                      {isCurrent ? (
+                        <span className="h-1.5 w-1.5 rounded-full bg-neutral-400 animate-pulse shrink-0" />
+                      ) : (
+                        <Check className="w-3 h-3 text-neutral-500 shrink-0" />
+                      )}
+                      <span className={isCurrent ? "text-neutral-200" : "text-neutral-500"}>
+                        {step}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+            )}
 
-        {/* Linhas skeleton subtis a simular composição da resposta */}
-        <div className="space-y-1.5 pt-0.5" aria-hidden="true">
-          <div className="h-2 w-11/12 rounded-full animate-chat-skeleton" />
-          <div
-            className="h-2 w-4/5 rounded-full animate-chat-skeleton"
-            style={{ animationDelay: "220ms" }}
-          />
-          <div
-            className="h-2 w-3/5 rounded-full animate-chat-skeleton"
-            style={{ animationDelay: "440ms" }}
-          />
-        </div>
+            {liveThinking.trim() && (
+              <div className="rounded-lg bg-neutral-950/70 border border-neutral-800/70 px-3 py-2 text-[11px] text-neutral-400 font-mono whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                {liveThinking}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

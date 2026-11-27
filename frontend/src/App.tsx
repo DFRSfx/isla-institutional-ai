@@ -19,6 +19,8 @@ export function App() {
   const [animatingMessageId, setAnimatingMessageId] = useState<string | null>(null);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [liveStageLabel, setLiveStageLabel] = useState<string | null>(null);
+  const [liveStages, setLiveStages] = useState<string[]>([]);
+  const [liveThinking, setLiveThinking] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -82,6 +84,8 @@ export function App() {
   const handleSendMessage = async (text: string) => {
     setChatError(null);
     setLiveStageLabel(null);
+    setLiveStages([]);
+    setLiveThinking("");
     const optimisticUserMsg: MessageItem = {
       id: `temp-${Date.now()}`,
       role: "user",
@@ -120,9 +124,19 @@ export function App() {
       await api.sendChatMessageStream(text, activeConversationId, {
         onStage: (stage) => {
           setLiveStageLabel(stage.label);
+          setLiveStages((prev) =>
+            prev[prev.length - 1] === stage.label ? prev : [...prev, stage.label],
+          );
+        },
+        onThought: (thought) => {
+          if (!thought.text) return;
+          setLiveThinking((prev) => prev + thought.text);
         },
         onMeta: (meta) => {
           setActiveConversationId(meta.conversation_id);
+          if (meta.plan && meta.plan.length > 0) {
+            setLiveStages((prev) => [...prev, ...meta.plan]);
+          }
           ensureStreamMessage({
             plan: meta.plan,
             tool_calls_json: meta.tool_calls,
@@ -147,6 +161,8 @@ export function App() {
           setActiveConversationId(done.conversation_id);
           setStreamingMessageId(null);
           setLiveStageLabel(null);
+          setLiveStages([]);
+          setLiveThinking("");
           setMessages((prev) =>
             prev.map((m) =>
               m.id === streamTempId
@@ -155,6 +171,8 @@ export function App() {
                     id: done.message_id,
                     content: done.answer,
                     needs_clarification: done.needs_clarification,
+                    elapsed_seconds: done.elapsed_seconds,
+                    thinking_text: done.thinking_text ?? null,
                   }
                 : m,
             ),
@@ -243,6 +261,8 @@ export function App() {
             animatingMessageId={animatingMessageId}
             streamingMessageId={streamingMessageId}
             liveStageLabel={liveStageLabel}
+            liveStages={liveStages}
+            liveThinking={liveThinking}
             onTypingComplete={handleTypingComplete}
             isSending={isSending}
             error={chatError}

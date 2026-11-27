@@ -137,10 +137,11 @@ class OpenAICompatibleLLMClient:
         self,
         *,
         messages: list[dict[str, Any]],
-    ) -> Iterator[str]:
+    ) -> Iterator[tuple[str, str]]:
         """
         Faz streaming real token-a-token via SSE (`/v1/chat/completions` com `stream=True`),
-        suprimindo eventuais blocos `<think>...</think>` em tempo real.
+        emitindo tuplos `("thought", texto)` (para modelos de raciocínio como Qwen3) e
+        `("content", texto)` para a resposta final.
         """
         if not self.is_ready:
             raise LLMClientError("Fornecedor LLM não está configurado ou pronto.")
@@ -167,38 +168,44 @@ class OpenAICompatibleLLMClient:
         in_think = False
         buffer = ""
 
-        def _consume_chunk(chunk: str) -> str:
+        def _consume_chunk(chunk: str) -> list[tuple[str, str]]:
             nonlocal in_think, buffer
             buffer += chunk
-            emitted = ""
+            events: list[tuple[str, str]] = []
             while buffer:
                 if in_think:
                     end_idx = buffer.lower().find("</think>")
                     if end_idx == -1:
-                        # Mantém apenas últimos 8 chars para não partir tag de fecho
-                        if len(buffer) > 8:
-                            buffer = buffer[-8:]
+                        safe_end = len(buffer)
+                        for k in range(1, min(8, len(buffer)) + 1):
+                            if "</think>".startswith(buffer[-k:].lower()):
+                                safe_end = len(buffer) - k
+                                break
+                        if safe_end > 0:
+                            events.append(("thought", buffer[:safe_end]))
+                            buffer = buffer[safe_end:]
                         break
+                    if end_idx > 0:
+                        events.append(("thought", buffer[:end_idx]))
                     buffer = buffer[end_idx + len("</think>") :].lstrip()
                     in_think = False
                 else:
                     start_idx = buffer.lower().find("<think>")
                     if start_idx == -1:
-                        # Evita emitir início parcial de "<think>"
                         safe_end = len(buffer)
                         for k in range(1, min(7, len(buffer)) + 1):
                             if "<think>".startswith(buffer[-k:].lower()):
                                 safe_end = len(buffer) - k
                                 break
                         if safe_end > 0:
-                            emitted += buffer[:safe_end]
+                            events.append(("content", buffer[:safe_end]))
                             buffer = buffer[safe_end:]
                         break
                     if start_idx > 0:
-                        emitted += buffer[:start_idx]
+                        events.append(("content", buffer[:start_idx]))
                     buffer = buffer[start_idx + len("<think>") :]
                     in_think = True
-            return emitted
+            return events
 
         try:
             with (
@@ -220,15 +227,16 @@ class OpenAICompatibleLLMClient:
                         if not choices:
                             continue
                         delta = choices[0].get("delta") or {}
+                        reasoning_tok = delta.get("reasoning") or delta.get("reasoning_content")
                         token = delta.get("content")
                     except (ValueError, KeyError, IndexError, TypeError):
                         continue
+                    if isinstance(reasoning_tok, str) and reasoning_tok:
+                        yield ("thought", reasoning_tok)
                     if isinstance(token, str) and token:
-                        clean = _consume_chunk(token)
-                        if clean:
-                            yield clean
+                        yield from _consume_chunk(token)
         except httpx.HTTPError as exc:
             raise LLMClientError(f"Falha no streaming do fornecedor LLM: {exc}") from exc
 
-        if not in_think and buffer:
-            yield buffer
+        if buffer:
+            yield ("thought" if in_think else "content", buffer)

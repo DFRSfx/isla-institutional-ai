@@ -7,7 +7,6 @@ import {
   MessageSquare,
   Plus,
   ShieldAlert,
-  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -59,8 +58,8 @@ export function Sidebar({
     <aside className="flex flex-col h-full w-64 bg-neutral-950 border-r border-neutral-800/80 select-none">
       <div className="flex items-center justify-between px-4 h-14 border-b border-neutral-800/70">
         <div className="flex items-center gap-2.5">
-          <div className="h-7 w-7 rounded-lg bg-white text-black flex items-center justify-center">
-            <Sparkles className="w-4 h-4" />
+          <div className="h-7 w-7 rounded-lg bg-white text-black flex items-center justify-center font-mono text-[11px] font-bold tracking-tighter">
+            IS
           </div>
           <div className="leading-tight">
             <div className="text-sm font-semibold text-white tracking-tight">ISLA AI</div>

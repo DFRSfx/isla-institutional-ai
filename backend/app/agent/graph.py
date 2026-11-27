@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -473,7 +474,13 @@ class AgentOrchestrator:
                 return None
             return (
                 out.llm_payload,
-                ["Router rápido -> pesquisa semântica (RAG local) nas publicações"],
+                [
+                    f'Pesquisa semântica (RAG): "{user_message[:55]}"',
+                    (
+                        f"Recuperadas {len(out.llm_payload.get('matches', []))} publicações mais relevantes "
+                        f"({out.llm_payload.get('indexed_publications', 0)} indexadas)"
+                    ),
+                ],
                 [out.audit_meta],
                 out.sources,
                 None,
@@ -500,9 +507,25 @@ class AgentOrchestrator:
             )
             if out.llm_payload.get("access_denied"):
                 return None
+            scope_lbl = plan.school_code or "ISLA (institucional)"
+            period_lbl = (
+                f"{plan.year_from}–{plan.year_to}"
+                if plan.year_from and plan.year_to and plan.year_from != plan.year_to
+                else (str(plan.year_from) if plan.year_from else "todos os anos")
+            )
+            kpis = (out.analytics_summary or {}).get("kpis") or {}
+            steps = [
+                f"Consulta SQL determinística: {scope_lbl} ({period_lbl})",
+                (
+                    f"Validadas {kpis.get('publications', 0)} publicações · "
+                    f"{kpis.get('scopus', 0)} Scopus · {kpis.get('q1', 0)} Q1"
+                ),
+            ]
+            if out.report_bundle:
+                steps.append("Gerados relatórios PDF e Excel com rastreabilidade")
             return (
                 out.llm_payload,
-                ["Router rápido -> executar análise determinística SQL + RBAC"],
+                steps,
                 [out.audit_meta],
                 out.sources,
                 out.report_bundle,
@@ -555,9 +578,20 @@ class AgentOrchestrator:
                     "school": matched_info.get("school_code"),
                     "match_type": matched_info.get("match_type"),
                 }
+            kpis = (out.analytics_summary or {}).get("kpis") or {}
+            res_name = matched_info.get("name") if matched_info else res_identifier
+            steps = [
+                f"Identificado docente: {res_name}",
+                (
+                    f"Métricas SQL validadas: {kpis.get('publications', 0)} publicações · "
+                    f"{kpis.get('scopus', 0)} Scopus · {kpis.get('citations', 0)} citações"
+                ),
+            ]
+            if out.report_bundle:
+                steps.append("Gerados relatórios PDF e Excel com rastreabilidade")
             return (
                 payload,
-                ["Router rápido -> identificar docente e calcular métricas SQL + RBAC"],
+                steps,
                 [out.audit_meta],
                 out.sources,
                 out.report_bundle,
@@ -583,9 +617,17 @@ class AgentOrchestrator:
         - `delta`: tokens gerados em tempo real pelo LLM local
         - `done`: payload final persistido (`message_id`, `answer`, `needs_clarification`)
         """
+        started_at = time.perf_counter()
+        short_q = message_text.strip()[:52]
+        if len(message_text.strip()) > 52:
+            short_q += "..."
+
         yield {
             "event": "stage",
-            "data": {"stage": "rbac", "label": "A validar permissões e interpretar o pedido..."},
+            "data": {
+                "stage": "rbac",
+                "label": f"A analisar \"{short_q}\"",
+            },
         }
 
         conversation: Conversation | None = None
@@ -660,7 +702,7 @@ class AgentOrchestrator:
                     "event": "stage",
                     "data": {
                         "stage": "generate",
-                        "label": "A redigir análise em tempo real com o modelo local...",
+                        "label": f"A redigir resposta com {self.llm_client.settings.llm_model or 'modelo local'}...",
                     },
                 }
 
@@ -687,11 +729,16 @@ class AgentOrchestrator:
                 )
 
                 chunks: list[str] = []
+                thought_chunks: list[str] = []
                 stream_failed = False
                 try:
-                    for token in self.llm_client.stream_chat_completion(messages=stream_messages):
-                        chunks.append(token)
-                        yield {"event": "delta", "data": {"text": token}}
+                    for kind, token in self.llm_client.stream_chat_completion(messages=stream_messages):
+                        if kind == "thought":
+                            thought_chunks.append(token)
+                            yield {"event": "thought", "data": {"text": token}}
+                        else:
+                            chunks.append(token)
+                            yield {"event": "delta", "data": {"text": token}}
                 except LLMClientError as exc:
                     stream_failed = True
                     record_audit_log(
@@ -762,6 +809,8 @@ class AgentOrchestrator:
                         "message_id": str(assistant_msg.id),
                         "answer": final_answer,
                         "needs_clarification": False,
+                        "elapsed_seconds": round(time.perf_counter() - started_at, 1),
+                        "thinking_text": "".join(thought_chunks).strip() or None,
                     },
                 }
                 return
@@ -769,7 +818,7 @@ class AgentOrchestrator:
         # Caminho completo (tool calling multi-passo, confirmações ou modo determinístico)
         yield {
             "event": "stage",
-            "data": {"stage": "generate", "label": "A processar resposta institucional..."},
+            "data": {"stage": "generate", "label": f"A processar \"{short_q}\""},
         }
         result = self.handle_message(
             db,
@@ -798,6 +847,8 @@ class AgentOrchestrator:
                 "message_id": str(result.message_id),
                 "answer": result.answer,
                 "needs_clarification": result.needs_clarification,
+                "elapsed_seconds": round(time.perf_counter() - started_at, 1),
+                "thinking_text": None,
             },
         }
 

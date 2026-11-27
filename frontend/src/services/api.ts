@@ -92,11 +92,14 @@ export const api = {
         analytics_summary: ChatResponse["analytics_summary"];
       }) => void;
       onDelta?: (payload: { text: string }) => void;
+      onThought?: (payload: { text: string }) => void;
       onDone?: (payload: {
         conversation_id: string;
         message_id: string;
         answer: string;
         needs_clarification: boolean;
+        elapsed_seconds?: number;
+        thinking_text?: string | null;
       }) => void;
     },
   ): Promise<void> {
@@ -140,6 +143,7 @@ export const api = {
         const parsed = JSON.parse(dataLines.join("\n"));
         if (eventName === "stage") handlers.onStage?.(parsed);
         else if (eventName === "meta") handlers.onMeta?.(parsed);
+        else if (eventName === "thought") handlers.onThought?.(parsed);
         else if (eventName === "delta") handlers.onDelta?.(parsed);
         else if (eventName === "done") handlers.onDone?.(parsed);
       } catch {

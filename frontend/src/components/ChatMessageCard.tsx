@@ -6,7 +6,6 @@ import {
   FileSpreadsheet,
   FileText,
   HelpCircle,
-  Sparkles,
 } from "lucide-react";
 
 import { api } from "@/services/api";
@@ -107,6 +106,7 @@ export function ChatMessageCard({
   onTypingComplete,
 }: ChatMessageCardProps) {
   const [showProvenance, setShowProvenance] = useState(false);
+  const [showTrace, setShowTrace] = useState(false);
   const [showAllYears, setShowAllYears] = useState(false);
   const [downloading, setDownloading] = useState<"pdf" | "excel" | null>(null);
   const [revealedChars, setRevealedChars] = useState<number>(() =>
@@ -195,17 +195,65 @@ export function ChatMessageCard({
     }
   };
 
+  const hasTrace =
+    !isStreaming &&
+    ((message.plan && message.plan.length > 0) || Boolean(message.thinking_text));
+  const elapsedLabel =
+    message.elapsed_seconds !== undefined
+      ? message.elapsed_seconds >= 60
+        ? `${Math.floor(message.elapsed_seconds / 60)}m ${Math.round(message.elapsed_seconds % 60)}s`
+        : `${Math.max(1, Math.round(message.elapsed_seconds))}s`
+      : null;
+
   return (
     <div className="flex items-start gap-3 animate-chat-msg-enter">
       <div className="h-7 w-7 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center shrink-0 mt-0.5">
         {message.needs_clarification ? (
           <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
         ) : (
-          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="font-mono text-[10px] font-semibold tracking-tighter text-neutral-300">
+            IS
+          </span>
         )}
       </div>
 
       <div className="flex-1 min-w-0 space-y-3">
+        {hasTrace && (
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              onClick={() => setShowTrace((v) => !v)}
+              className="inline-flex items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-200 transition-colors"
+            >
+              <span>
+                {elapsedLabel ? `Processado em ${elapsedLabel}` : "Passos executados"}
+              </span>
+              {showTrace ? (
+                <ChevronDown className="w-3.5 h-3.5 text-neutral-500" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-neutral-500" />
+              )}
+            </button>
+            {showTrace && (
+              <div className="pl-3 ml-1 border-l border-neutral-800 space-y-2 py-0.5 animate-chat-step-enter">
+                {message.plan && message.plan.length > 0 && (
+                  <div className="space-y-1">
+                    {message.plan.map((step, i) => (
+                      <div key={i} className="text-xs text-neutral-400 leading-relaxed">
+                        {step}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {message.thinking_text && (
+                  <div className="rounded-lg bg-neutral-900/70 border border-neutral-800/80 px-3 py-2 text-[11px] font-mono text-neutral-400 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto">
+                    {message.thinking_text}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {kpis && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <KpiTile label="Publicações" value={String(kpis.publications)} delayMs={0} />

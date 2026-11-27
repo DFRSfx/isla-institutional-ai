@@ -122,6 +122,8 @@ export interface MessageItem {
   report_bundle?: ReportBundle | null;
   analytics_summary?: AnalyticsSummary | null;
   needs_clarification?: boolean;
+  elapsed_seconds?: number;
+  thinking_text?: string | null;
 }
 
 export interface SourceSnapshot {

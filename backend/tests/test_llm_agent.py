@@ -293,18 +293,18 @@ def test_strip_qwen3_think_tags_and_hide_uuid_on_name_hypotheses(db_session: Ses
     raw = "<think>\nVou analisar os indicadores da EST...\n</think>\nA EST tem 2 publicações."
     assert strip_reasoning_tags(raw) == "A EST tem 2 publicações."
 
-    # 2. Hipóteses por nome em find_researcher não podem expor 'id' ao LLM
+    # 2. Hipóteses ambíguas por nome (2+ candidatos) em find_researcher não podem expor 'id' ao LLM
     _seed_data(db_session)
     direction = make_user(db_session, email="direcao@islagaia.pt", role=UserRole.DIRECTION)
     out = execute_registered_tool(
         name="find_researcher",
-        arguments={"query": "Bruno Costa"},
+        arguments={"query": "a"},
         ctx=ToolContext(db=db_session, user=direction),
         report_generator=ReportGeneratorService(),
     )
     assert out.llm_payload["matches"] == []
-    assert len(out.llm_payload["hypotheses"]) == 1
-    assert "id" not in out.llm_payload["hypotheses"][0]
+    assert len(out.llm_payload["hypotheses"]) >= 2
+    assert all("id" not in h for h in out.llm_payload["hypotheses"])
     assert out.llm_payload["hypotheses"][0]["requires_confirmation"] is True
 
 
@@ -343,10 +343,10 @@ def test_report_tool_accepts_ciencia_vitae_id_and_email_with_rbac(db_session: Se
     assert denied.llm_payload.get("access_denied") is True
     assert denied.analytics_summary is None
 
-    # 4. Nome solto sem confirmação continua a ser recusado (sem UUID exposto)
+    # 4. Nome ambíguo (2+ candidatos) continua a ser recusado (sem UUID exposto)
     unconfirmed = execute_registered_tool(
         name="get_scientific_production_report_data",
-        arguments={"researcher_id": "Bruno Costa"},
+        arguments={"researcher_id": "a"},
         ctx=ToolContext(db=db_session, user=direction),
         report_generator=ReportGeneratorService(),
     )

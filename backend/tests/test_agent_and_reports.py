@@ -319,28 +319,54 @@ def test_faculty_cannot_see_other_researchers_in_ranking_pdf_or_excel(
         assert estudantes_names == []
 
 
-def test_agent_requires_identity_confirmation_for_single_name_match(
+def test_agent_resolves_unique_name_and_requires_confirmation_for_ambiguous_name(
     db_session: Session, tmp_path: Path
 ) -> None:
     _seed_cross_source_data(db_session)
+    # Adiciona segundo docente com apelido 'Costa' para testar ambiguidade real (2+ candidatos)
+    from app.models.researcher import Researcher
+
+    db_session.add(
+        Researcher(
+            name="Miguel Costa",
+            normalized_name="miguel costa",
+            ciencia_vitae_id="MMMM-9999-NNNN",
+            email="miguel.costa@isla.test",
+            category="Teacher",
+            school_code_raw="EST",
+        )
+    )
+    db_session.commit()
     direction = make_user(db_session, email="direcao@islagaia.pt", role=UserRole.DIRECTION)
 
     with _build_isolated_client(db_session, tmp_path) as client:
-        # Mesmo existindo apenas um candidato chamado 'Bruno Costa', não deve gerar relatório sem validação
-        name_resp = client.post(
+        # 1. Nome único inequívoco ('Bruno Costa') resolve imediatamente e devolve KPIs
+        unique_resp = client.post(
             "/api/v1/chat",
             json={"message": "Gera um relatório sobre o docente Bruno Costa"},
             headers=auth_headers(direction),
         )
-        assert name_resp.status_code == 200
-        body = name_resp.json()
-        assert body["needs_clarification"] is True
-        assert body["report_bundle"] is None
-        assert body["analytics_summary"] is None
-        assert "Bruno Costa" in body["answer"]
-        assert "Ciência Vitae" in body["answer"]
+        assert unique_resp.status_code == 200
+        unique_body = unique_resp.json()
+        assert unique_body["needs_clarification"] is False
+        assert unique_body["analytics_summary"]["kpis"]["publications"] == 1
+        assert "Bruno Costa" in unique_body["answer"]
 
-        # Com identificador exato (Ciência Vitae ID), o agente avança e gera o relatório
+        # 2. Nome ambíguo ('Costa' -> Bruno Costa + Miguel Costa) exige confirmação
+        amb_resp = client.post(
+            "/api/v1/chat",
+            json={"message": "Gera um relatório sobre o docente Costa"},
+            headers=auth_headers(direction),
+        )
+        assert amb_resp.status_code == 200
+        amb_body = amb_resp.json()
+        assert amb_body["needs_clarification"] is True
+        assert amb_body["report_bundle"] is None
+        assert amb_body["analytics_summary"] is None
+        assert "Bruno Costa" in amb_body["answer"]
+        assert "Miguel Costa" in amb_body["answer"]
+
+        # 3. Com identificador exato (Ciência Vitae ID), o agente avança e gera o relatório
         id_resp = client.post(
             "/api/v1/chat",
             json={"message": "Gera um relatório sobre o docente CCCC-2222-DDDD"},

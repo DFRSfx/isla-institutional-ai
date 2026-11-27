@@ -50,7 +50,7 @@
       "id": "Q04",
       "category": "identity_confirmation",
       "role": "direction",
-      "prompt": "Gera um relatório sobre o docente Bruno Costa",
+      "prompt": "Gera um relatório sobre o docente Costa",
       "expected": {
         "needs_clarification": true,
         "requires_reports": false

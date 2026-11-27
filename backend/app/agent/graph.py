@@ -458,14 +458,21 @@ class AgentOrchestrator:
         if plan.intent == "researcher_report":
             query = plan.researcher_query or ""
             res_identifier: str | None = None
+            matched_info: dict[str, Any] | None = None
             if query == "__self__":
                 if ctx.user.researcher_id is None:
                     return None
                 res_identifier = str(ctx.user.researcher_id)
             elif CV_PATTERN.search(query) or EMAIL_PATTERN.search(query):
                 res_identifier = query
+            elif query:
+                lookup = find_researcher(ctx, query)
+                if lookup["access_denied"] or len(lookup["matches"]) != 1:
+                    # Nome ambíguo (2+ candidatos), não encontrado ou sem permissão -> fluxo completo
+                    return None
+                matched_info = lookup["matches"][0]
+                res_identifier = str(matched_info["id"])
             else:
-                # Nome solto: deixar o fluxo normal pedir confirmação de identidade
                 return None
 
             out = execute_registered_tool(
@@ -485,9 +492,18 @@ class AgentOrchestrator:
             )
             if out.llm_payload.get("access_denied") or out.llm_payload.get("error"):
                 return None
+            payload = dict(out.llm_payload)
+            if matched_info is not None:
+                payload["matched_researcher"] = {
+                    "name": matched_info.get("name"),
+                    "ciencia_vitae_id": matched_info.get("ciencia_vitae_id"),
+                    "email": matched_info.get("email"),
+                    "school": matched_info.get("school_code"),
+                    "match_type": matched_info.get("match_type"),
+                }
             return (
-                out.llm_payload,
-                ["Router rápido -> validar identidade exata e calcular métricas SQL + RBAC"],
+                payload,
+                ["Router rápido -> identificar docente e calcular métricas SQL + RBAC"],
                 [out.audit_meta],
                 out.sources,
                 out.report_bundle,

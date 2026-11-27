@@ -134,6 +134,7 @@ def _build_synthetic_excel_bytes() -> bytes:
         ["EEEE-3333-FFFF", "Carla Duarte", "carla.duarte@isla.test", "N", "EEEE-3333-9999", "L", "EST", None, "Engenharia", "Student"],
         ["AAAA-1111-BBBB", "Diogo Ferreira", "diogo.ferreira@isla.test", "O", "AAAA-1111-BBBB", "N", "ESG", None, None, "Teacher"],
         ["9999-XXXX-8888", "Eva Externa", "eva.externa@isla.test", "Y", "9999-XXXX-8888", "D", "ESG", None, None, "Convidado"],
+        ["MMMM-9999-NNNN", "Miguel Costa", "miguel.costa@isla.test", "Y", "MMMM-9999-NNNN", "D", "EST", None, "Gestão", "Teacher"],
     ]
     for r in rows:
         ws.append(r)

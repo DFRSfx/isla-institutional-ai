@@ -114,7 +114,24 @@ def find_researcher(ctx: ToolContext, query: str) -> dict[str, Any]:
         exact_matches = allowed_exact
         name_matches = allowed_name
 
-    # Quando há correspondência exata por CV/email, devolve em matches; por nome, indica necessidade de validação se múltiplas
+    # Quando há correspondência exata por CV/email, devolve em matches.
+    # Por nome: se existir exatamente 1 candidato único no ISLA, resolve automaticamente
+    # (match_type='unique_name_match'); se houver 2+ candidatos ambíguos, exige confirmação.
+    dedup_name_matches = [r for r in name_matches if r.id not in {m.id for m in exact_matches}]
+    if not exact_matches and len(dedup_name_matches) == 1:
+        unique = dedup_name_matches[0]
+        return {
+            "matches": [
+                {
+                    **_format_researcher_for_user(unique, ctx),
+                    "match_type": "unique_name_match",
+                }
+            ],
+            "hypotheses": [],
+            "access_denied": False,
+            "sources": collect_latest_sources(ctx.db),
+        }
+
     return {
         "matches": [
             {**_format_researcher_for_user(r, ctx), "match_type": "exact_identifier"}
@@ -126,8 +143,7 @@ def find_researcher(ctx: ToolContext, query: str) -> dict[str, Any]:
                 "match_type": "name_search",
                 "requires_confirmation": True,
             }
-            for r in name_matches
-            if r.id not in {m.id for m in exact_matches}
+            for r in dedup_name_matches
         ],
         "access_denied": False,
         "sources": collect_latest_sources(ctx.db),
